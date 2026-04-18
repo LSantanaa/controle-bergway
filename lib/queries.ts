@@ -2,7 +2,26 @@ import "server-only";
 
 import { requireActiveProfile, requireAdminProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import type { Barrel, Customer, DashboardData, Movement, Profile } from "@/lib/types";
+import type {
+  Barrel,
+  Customer,
+  DashboardData,
+  DashboardSummaryData,
+  Movement,
+  MovementPageData,
+  PaginatedResult,
+  Profile,
+} from "@/lib/types";
+
+type BarrelRow = Omit<Barrel, "current_customer"> & {
+  current_customer?: Barrel["current_customer"] | Barrel["current_customer"][];
+};
+
+type MovementRow = Omit<Movement, "customer" | "performer" | "barrel"> & {
+  barrel?: Movement["barrel"] | Movement["barrel"][];
+  customer?: Movement["customer"] | Movement["customer"][];
+  performer?: Movement["performer"] | Movement["performer"][];
+};
 
 function firstRelation<T>(value: T | T[] | null | undefined) {
   if (Array.isArray(value)) {
@@ -12,179 +31,457 @@ function firstRelation<T>(value: T | T[] | null | undefined) {
   return value ?? null;
 }
 
-function normalizeBarrel(row: {
-  current_customer?: Barrel["current_customer"] | Barrel["current_customer"][];
-} & Omit<Barrel, "current_customer">): Barrel {
+function normalizeBarrel(row: BarrelRow): Barrel {
   return {
     ...row,
     current_customer: firstRelation(row.current_customer),
   };
 }
 
-function normalizeMovement(row: {
-  customer?: Movement["customer"] | Movement["customer"][];
-  performer?: Movement["performer"] | Movement["performer"][];
-} & Omit<Movement, "customer" | "performer">): Movement {
+function normalizeMovement(row: MovementRow): Movement {
   return {
     ...row,
+    barrel: firstRelation(row.barrel),
     customer: firstRelation(row.customer),
     performer: firstRelation(row.performer),
   };
 }
 
-export async function getDashboardData(): Promise<DashboardData> {
-  const profile = await requireActiveProfile();
-  const supabase = await createClient();
-
-  const [barrels, customers, movements] = await Promise.all([
-    supabase
-      .from("barrels")
-      .select(
-        "id, code, capacity_liters, status, notes, is_active, current_customer_id, updated_at, current_customer:customers(id, name, trade_name)",
-      )
-      .order("code"),
-    supabase
-      .from("customers")
-      .select("id, name, trade_name, contact_name, phone, city, notes, is_active, updated_at")
-      .order("name"),
-    supabase
-      .from("movements")
-      .select(
-        "id, movement_type, notes, occurred_at, barrel_code, customer:customers(id, name, trade_name), performer:profiles!movements_performed_by_fkey(id, full_name)",
-      )
-      .order("occurred_at", { ascending: false })
-      .limit(12),
-  ]);
-
-  const firstError = [barrels.error, customers.error, movements.error].find(Boolean);
-
-  if (firstError) {
-    throw firstError;
-  }
+function getRange(page: number, pageSize: number) {
+  const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+  const safePageSize =
+    Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 100) : 20;
 
   return {
-    profile,
-    barrels: (barrels.data ?? []).map((item) => normalizeBarrel(item as never)),
-    customers: (customers.data ?? []) as Customer[],
-    movements: (movements.data ?? []).map((item) => normalizeMovement(item as never)),
+    page: safePage,
+    pageSize: safePageSize,
+    from: (safePage - 1) * safePageSize,
+    to: safePage * safePageSize - 1,
   };
 }
 
-export async function getBarrels(search = "") {
+function buildPaginatedResult<T>(
+  items: T[],
+  total: number | null,
+  page: number,
+  pageSize: number,
+): PaginatedResult<T> {
+  return {
+    items,
+    total: total ?? items.length,
+    page,
+    pageSize,
+  };
+}
+
+async function getMatchingCustomerIds(term: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("customers")
+    .select("id")
+    .or(`name.ilike.%${term}%,trade_name.ilike.%${term}%`)
+    .limit(100);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((item) => item.id);
+}
+
+async function getMatchingPerformerIds(term: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id")
+    .or(`full_name.ilike.%${term}%,email.ilike.%${term}%`)
+    .limit(100);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((item) => item.id);
+}
+
+export async function getActiveCustomers(search = "") {
+  await requireActiveProfile();
+  const supabase = await createClient();
+
+  let query = supabase
+    .from("customers")
+    .select("id, name, trade_name, contact_name, phone, city")
+    .eq("is_active", true)
+    .order("name");
+
+  if (search.trim()) {
+    query = query.or(
+      `name.ilike.%${search.trim()}%,trade_name.ilike.%${search.trim()}%,city.ilike.%${search.trim()}%,phone.ilike.%${search.trim()}%`,
+    );
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as Customer[];
+}
+
+export async function getOpenBarrels(limit = 8) {
   await requireActiveProfile();
   const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("barrels")
     .select(
-      "id, code, capacity_liters, status, notes, is_active, current_customer_id, updated_at, current_customer:customers(id, name, trade_name)",
+      "id, code, capacity_liters, status, notes, current_customer_id, updated_at, current_customer:customers(name, trade_name)",
     )
-    .order("code");
+    .eq("status", "out")
+    .eq("is_active", true)
+    .order("updated_at", { ascending: false })
+    .limit(limit);
 
   if (error) {
     throw error;
   }
 
-  const barrels = (data ?? []).map((item) => normalizeBarrel(item as never));
-  const term = search.trim().toLowerCase();
-
-  if (!term) {
-    return barrels;
-  }
-
-  return barrels.filter((item) =>
-    [item.code, item.current_customer?.name, item.current_customer?.trade_name]
-      .filter(Boolean)
-      .some((value) => value!.toLowerCase().includes(term)),
-  );
+  return (data ?? []).map((item) => normalizeBarrel(item as BarrelRow));
 }
 
-export async function getCustomers(search = "") {
+export async function searchBarrelByCode(code: string) {
   await requireActiveProfile();
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from("customers")
-    .select("id, name, trade_name, contact_name, phone, city, notes, is_active, updated_at")
-    .order("name");
+  // Get barrel info
+  const { data: barrel, error: barrelError } = await supabase
+    .from("barrels")
+    .select("id, code, capacity_liters, notes, is_active")
+    .eq("code", code.trim().toUpperCase())
+    .eq("is_active", true)
+    .single();
 
-  if (error) {
-    throw error;
+  if (barrelError) {
+    if (barrelError.code === "PGRST116") {
+      return null; // Not found
+    }
+    throw barrelError;
   }
 
-  const customers = (data ?? []) as Customer[];
-  const term = search.trim().toLowerCase();
+  // Get last movement to determine actual status
+  const { data: movements, error: movError } = await supabase
+    .from("movements")
+    .select("movement_type")
+    .eq("barrel_code", barrel.code)
+    .order("occurred_at", { ascending: false })
+    .limit(1);
 
-  if (!term) {
-    return customers;
+  if (movError) {
+    throw movError;
   }
 
-  return customers.filter((item) =>
-    [item.name, item.trade_name, item.city, item.phone]
-      .filter(Boolean)
-      .some((value) => value!.toLowerCase().includes(term)),
-  );
+  // Determine status from last movement
+  let status: "in" | "out" = "in"; // Default to in if no movements
+  if (movements && movements.length > 0) {
+    status = movements[0].movement_type === "checkin" ? "in" : "out";
+  }
+
+  return {
+    id: barrel.id,
+    code: barrel.code,
+    capacity_liters: barrel.capacity_liters,
+    notes: barrel.notes,
+    is_active: barrel.is_active,
+    status,
+  };
 }
 
-export async function getUsers(search = "") {
-  await requireAdminProfile();
-  const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, email, full_name, role, is_active, created_at")
-    .order("full_name");
-
-  if (error) {
-    throw error;
-  }
-
-  const users = (data ?? []) as Profile[];
-  const term = search.trim().toLowerCase();
-
-  if (!term) {
-    return users;
-  }
-
-  return users.filter((item) =>
-    [item.full_name, item.email]
-      .filter(Boolean)
-      .some((value) => value!.toLowerCase().includes(term)),
-  );
-}
-
-export async function getHistory(search = "") {
+export async function getRecentMovements(limit = 12) {
   await requireActiveProfile();
   const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("movements")
     .select(
-      "id, movement_type, notes, occurred_at, barrel_code, customer:customers(id, name, trade_name), performer:profiles!movements_performed_by_fkey(id, full_name)",
+      "id, movement_type, notes, occurred_at, barrel_code, barrel:barrels(notes), customer:customers(name, trade_name), performer:profiles!movements_performed_by_fkey(full_name)",
     )
     .order("occurred_at", { ascending: false })
-    .limit(250);
+    .limit(limit);
 
   if (error) {
     throw error;
   }
 
-  const movements = (data ?? []).map((item) => normalizeMovement(item as never));
-  const term = search.trim().toLowerCase();
+  return (data ?? []).map((item) => normalizeMovement(item as MovementRow));
+}
 
-  if (!term) {
-    return movements;
+export async function getBarrelStats() {
+  await requireActiveProfile();
+  const supabase = await createClient();
+
+  const [activeResult, availableResult, openResult] = await Promise.all([
+    supabase.from("barrels").select("id", { count: "exact", head: true }).eq("is_active", true),
+    supabase
+      .from("barrels")
+      .select("id", { count: "exact", head: true })
+      .eq("is_active", true)
+      .eq("status", "available"),
+    supabase
+      .from("barrels")
+      .select("id", { count: "exact", head: true })
+      .eq("is_active", true)
+      .eq("status", "out"),
+  ]);
+
+  const firstError = [activeResult.error, availableResult.error, openResult.error].find(Boolean);
+
+  if (firstError) {
+    throw firstError;
   }
 
-  return movements.filter((item) =>
-    [
-      item.barrel_code,
-      item.notes,
-      item.customer?.name,
-      item.customer?.trade_name,
-      item.performer?.full_name,
-    ]
-      .filter(Boolean)
-      .some((value) => value!.toLowerCase().includes(term)),
+  return {
+    activeBarrels: activeResult.count ?? 0,
+    availableBarrels: availableResult.count ?? 0,
+    openBarrels: openResult.count ?? 0,
+  };
+}
+
+export async function getCustomerStats() {
+  await requireActiveProfile();
+  const supabase = await createClient();
+
+  const { count, error } = await supabase
+    .from("customers")
+    .select("id", { count: "exact", head: true })
+    .eq("is_active", true);
+
+  if (error) {
+    throw error;
+  }
+
+  return count ?? 0;
+}
+
+export async function getDashboardSummaryData(): Promise<DashboardSummaryData> {
+  const [stats, activeCustomers, openBarrels, recentMovements] = await Promise.all([
+    getBarrelStats(),
+    getCustomerStats(),
+    getOpenBarrels(8),
+    getRecentMovements(12),
+  ]);
+
+  return {
+    stats: {
+      activeBarrels: stats.activeBarrels,
+      availableBarrels: stats.availableBarrels,
+      openBarrels: stats.openBarrels,
+      activeCustomers,
+    },
+    openBarrels,
+    recentMovements,
+  };
+}
+
+export async function getMovementPageData(): Promise<MovementPageData> {
+  const [activeCustomers, openBarrels, recentMovements] = await Promise.all([
+    getActiveCustomers(),
+    getOpenBarrels(100),
+    getRecentMovements(12),
+  ]);
+
+  return {
+    activeCustomers,
+    openBarrels,
+    recentMovements,
+  };
+}
+
+export async function getDashboardData(): Promise<DashboardData> {
+  const profile = await requireActiveProfile();
+  const [activeCustomers, recentMovements, openBarrels] = await Promise.all([
+    getActiveCustomers(),
+    getRecentMovements(12),
+    getOpenBarrels(100),
+  ]);
+
+  return {
+    profile,
+    barrels: openBarrels,
+    customers: activeCustomers,
+    movements: recentMovements,
+  };
+}
+
+export async function getBarrelsPageData({
+  page = 1,
+  pageSize = 20,
+  search = "",
+}: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}): Promise<PaginatedResult<Barrel>> {
+  await requireActiveProfile();
+  const supabase = await createClient();
+  const range = getRange(page, pageSize);
+  const term = search.trim();
+
+  let query = supabase
+    .from("barrels")
+    .select(
+      "id, code, capacity_liters, status, notes, is_active, current_customer_id, updated_at, current_customer:customers(name, trade_name)",
+      { count: "exact" },
+    )
+    .order("code")
+    .range(range.from, range.to);
+
+  if (term) {
+    const customerIds = await getMatchingCustomerIds(term);
+
+    if (customerIds.length) {
+      query = query.or(`code.ilike.%${term}%,current_customer_id.in.(${customerIds.join(",")})`);
+    } else {
+      query = query.ilike("code", `%${term}%`);
+    }
+  }
+
+  const { data, error, count } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return buildPaginatedResult(
+    (data ?? []).map((item) => normalizeBarrel(item as BarrelRow)),
+    count,
+    range.page,
+    range.pageSize,
+  );
+}
+
+export async function getCustomersPageData({
+  page = 1,
+  pageSize = 20,
+  search = "",
+}: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}): Promise<PaginatedResult<Customer>> {
+  await requireActiveProfile();
+  const supabase = await createClient();
+  const range = getRange(page, pageSize);
+  const term = search.trim();
+
+  let query = supabase
+    .from("customers")
+    .select("id, name, trade_name, contact_name, phone, city, notes, is_active", {
+      count: "exact",
+    })
+    .order("name")
+    .range(range.from, range.to);
+
+  if (term) {
+    query = query.or(
+      `name.ilike.%${term}%,trade_name.ilike.%${term}%,city.ilike.%${term}%,phone.ilike.%${term}%`,
+    );
+  }
+
+  const { data, error, count } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return buildPaginatedResult((data ?? []) as Customer[], count, range.page, range.pageSize);
+}
+
+export async function getUsersPageData({
+  page = 1,
+  pageSize = 20,
+  search = "",
+}: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}): Promise<PaginatedResult<Profile>> {
+  await requireAdminProfile();
+  const supabase = await createClient();
+  const range = getRange(page, pageSize);
+  const term = search.trim();
+
+  let query = supabase
+    .from("profiles")
+    .select("id, email, full_name, role, is_active, created_at", { count: "exact" })
+    .order("full_name")
+    .range(range.from, range.to);
+
+  if (term) {
+    query = query.or(`full_name.ilike.%${term}%,email.ilike.%${term}%`);
+  }
+
+  const { data, error, count } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return buildPaginatedResult((data ?? []) as Profile[], count, range.page, range.pageSize);
+}
+
+export async function getHistoryPageData({
+  page = 1,
+  pageSize = 25,
+  search = "",
+}: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}): Promise<PaginatedResult<Movement>> {
+  await requireActiveProfile();
+  const supabase = await createClient();
+  const range = getRange(page, pageSize);
+  const term = search.trim();
+
+  let query = supabase
+    .from("movements")
+    .select(
+      "id, movement_type, notes, occurred_at, barrel_code, barrel:barrels(code, notes), customer:customers(name, trade_name), performer:profiles!movements_performed_by_fkey(full_name)",
+      { count: "exact" },
+    )
+    .order("occurred_at", { ascending: false })
+    .range(range.from, range.to);
+
+  if (term) {
+    const [customerIds, performerIds] = await Promise.all([
+      getMatchingCustomerIds(term),
+      getMatchingPerformerIds(term),
+    ]);
+
+    const filters = [`barrel_code.ilike.%${term}%`, `notes.ilike.%${term}%`];
+
+    if (customerIds.length) {
+      filters.push(`customer_id.in.(${customerIds.join(",")})`);
+    }
+
+    if (performerIds.length) {
+      filters.push(`performed_by.in.(${performerIds.join(",")})`);
+    }
+
+    query = query.or(filters.join(","));
+  }
+
+  const { data, error, count } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return buildPaginatedResult(
+    (data ?? []).map((item) => normalizeMovement(item as MovementRow)),
+    count,
+    range.page,
+    range.pageSize,
   );
 }

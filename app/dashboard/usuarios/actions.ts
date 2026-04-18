@@ -1,26 +1,13 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-
 import { requireAdminProfile, requireSession } from "@/lib/auth";
 import { hasSupabaseAdminEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { buildFeedbackPath, isTruthy, normalizeText } from "@/lib/utils";
+import type { ActionResult } from "@/lib/types";
+import { isTruthy, normalizeText } from "@/lib/utils";
 
-const BASE_PATH = "/dashboard/usuarios";
-
-function finish(type: "success" | "error", message: string) {
-  redirect(buildFeedbackPath(BASE_PATH, type, message));
-}
-
-function refreshAll() {
-  revalidatePath("/dashboard");
-  revalidatePath(BASE_PATH);
-}
-
-export async function saveUserAction(formData: FormData) {
+export async function saveUserAction(formData: FormData): Promise<ActionResult> {
   await requireAdminProfile();
 
   const supabase = await createClient();
@@ -32,16 +19,19 @@ export async function saveUserAction(formData: FormData) {
   const isActive = isTruthy(formData.get("is_active"));
 
   if (!fullName || !email || !role) {
-    finish("error", "Nome, e-mail e perfil são obrigatórios.");
+    return { status: "error", message: "Nome, e-mail e perfil são obrigatórios." };
   }
 
   if (!userId && password.length < 6) {
-    finish("error", "Defina uma senha com pelo menos 6 caracteres.");
+    return { status: "error", message: "Defina uma senha com pelo menos 6 caracteres." };
   }
 
   if (!userId) {
     if (!hasSupabaseAdminEnv) {
-      finish("error", "Falta configurar a SUPABASE_SECRET_KEY para criar usuários.");
+      return {
+        status: "error",
+        message: "Falta configurar a SUPABASE_SECRET_KEY para criar usuários.",
+      };
     }
 
     const admin = createAdminClient();
@@ -55,13 +45,11 @@ export async function saveUserAction(formData: FormData) {
     });
 
     if (error || !data.user) {
-      finish("error", "Não foi possível criar o usuário.");
+      return { status: "error", message: "Não foi possível criar o usuário." };
     }
 
-    const createdUser = data.user!;
-
     const { error: profileError } = await admin.from("profiles").upsert({
-      id: createdUser.id,
+      id: data.user.id,
       email,
       full_name: fullName,
       role,
@@ -69,11 +57,13 @@ export async function saveUserAction(formData: FormData) {
     });
 
     if (profileError) {
-      finish("error", "Usuário criado, mas o perfil não pôde ser sincronizado.");
+      return {
+        status: "error",
+        message: "Usuário criado, mas o perfil não pôde ser sincronizado.",
+      };
     }
 
-    refreshAll();
-    finish("success", "Usuário criado com sucesso.");
+    return { status: "success", message: "Usuário criado com sucesso." };
   }
 
   const { data: currentUser } = await supabase
@@ -86,7 +76,10 @@ export async function saveUserAction(formData: FormData) {
   const needsAdminAuthUpdate = emailChanged || Boolean(password);
 
   if (needsAdminAuthUpdate && !hasSupabaseAdminEnv) {
-    finish("error", "Falta configurar a SUPABASE_SECRET_KEY para alterar e-mail ou senha.");
+    return {
+      status: "error",
+      message: "Falta configurar a SUPABASE_SECRET_KEY para alterar e-mail ou senha.",
+    };
   }
 
   if (needsAdminAuthUpdate) {
@@ -112,7 +105,10 @@ export async function saveUserAction(formData: FormData) {
     const { error } = await admin.auth.admin.updateUserById(userId, authPayload);
 
     if (error) {
-      finish("error", "Não foi possível atualizar as credenciais do usuário.");
+      return {
+        status: "error",
+        message: "Não foi possível atualizar as credenciais do usuário.",
+      };
     }
   }
 
@@ -127,18 +123,20 @@ export async function saveUserAction(formData: FormData) {
     .eq("id", userId);
 
   if (error) {
-    finish("error", "Não foi possível atualizar o usuário.");
+    return { status: "error", message: "Não foi possível atualizar o usuário." };
   }
 
-  refreshAll();
-  finish("success", "Usuário atualizado.");
+  return { status: "success", message: "Usuário atualizado." };
 }
 
-export async function deleteUserAction(formData: FormData) {
+export async function deleteUserAction(formData: FormData): Promise<ActionResult> {
   await requireAdminProfile();
 
   if (!hasSupabaseAdminEnv) {
-    finish("error", "Falta configurar a SUPABASE_SECRET_KEY para excluir usuários.");
+    return {
+      status: "error",
+      message: "Falta configurar a SUPABASE_SECRET_KEY para excluir usuários.",
+    };
   }
 
   const session = await requireSession();
@@ -146,7 +144,10 @@ export async function deleteUserAction(formData: FormData) {
   const userId = normalizeText(formData.get("userId"));
 
   if (session.userId === userId) {
-    finish("error", "Não é uma boa ideia excluir o próprio usuário administrador.");
+    return {
+      status: "error",
+      message: "Não é uma boa ideia excluir o próprio usuário administrador.",
+    };
   }
 
   const { count } = await supabase
@@ -155,16 +156,18 @@ export async function deleteUserAction(formData: FormData) {
     .eq("performed_by", userId);
 
   if ((count ?? 0) > 0) {
-    finish("error", "Esse usuário já operou movimentações. Desative em vez de excluir.");
+    return {
+      status: "error",
+      message: "Esse usuário já operou movimentações. Desative em vez de excluir.",
+    };
   }
 
   const admin = createAdminClient();
   const { error } = await admin.auth.admin.deleteUser(userId, false);
 
   if (error) {
-    finish("error", "Não foi possível excluir o usuário.");
+    return { status: "error", message: "Não foi possível excluir o usuário." };
   }
 
-  refreshAll();
-  finish("success", "Usuário excluído com sucesso.");
+  return { status: "success", message: "Usuário excluído com sucesso." };
 }

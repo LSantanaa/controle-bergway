@@ -1,23 +1,54 @@
+"use client";
+
 import Link from "next/link";
+import { useTransition, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { FlashMessage } from "@/components/ui/flash-message";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { getDashboardData } from "@/lib/queries";
-import type { SearchParamsRecord } from "@/lib/types";
-import { formatDateTime, formatMovementType, readFlash } from "@/lib/utils";
+import { BarrelSearch } from "@/components/ui/barrel-search";
+import { useMovementPageQuery } from "@/lib/hooks/use-app-queries";
+import { useFlashState } from "@/lib/hooks/use-flash-state";
+import { formatDateTime, formatMovementType } from "@/lib/utils";
 
 import { registerMovementAction } from "./actions";
 
-type MovementsPageProps = {
-  searchParams: Promise<SearchParamsRecord>;
-};
+export default function MovementsPage() {
+  const queryClient = useQueryClient();
+  const { flash, setFlash } = useFlashState();
+  const [isPending, startTransition] = useTransition();
+  const [selectedBarrel, setSelectedBarrel] = useState<any>(null);
+  const { data } = useMovementPageQuery();
+  const activeCustomers = data?.activeCustomers ?? [];
+  const openBarrels = data?.openBarrels ?? [];
+  const movements = data?.recentMovements ?? [];
 
-export default async function MovementsPage({ searchParams }: MovementsPageProps) {
-  const params = await searchParams;
-  const flash = readFlash(params);
-  const data = await getDashboardData();
-  const activeCustomers = data.customers.filter((item) => item.is_active);
-  const openBarrels = data.barrels.filter((item) => item.is_active && item.status === "out");
+  async function invalidateData() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["barrels"] }),
+      queryClient.invalidateQueries({ queryKey: ["history"] }),
+    ]);
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+
+    startTransition(async () => {
+      const result = await registerMovementAction(formData);
+      setFlash({
+        error: result.status === "error" ? result.message : "",
+        success: result.status === "success" ? result.message : "",
+      });
+
+      if (result.status === "success") {
+        form.reset();
+        await invalidateData();
+      }
+    });
+  }
 
   return (
     <>
@@ -42,13 +73,10 @@ export default async function MovementsPage({ searchParams }: MovementsPageProps
             </p>
           </div>
 
-          <form action={registerMovementAction} className="stack">
+          <form className="stack" onSubmit={handleSubmit}>
             <div className="field-grid">
               <div className="field-grid-2">
-                <div className="field">
-                  <label htmlFor="barrel_code">Código do barril</label>
-                  <input className="input" id="barrel_code" name="barrel_code" required />
-                </div>
+                <BarrelSearch onBarrelSelect={setSelectedBarrel} />
 
                 <div className="field">
                   <label htmlFor="movement_type">Tipo</label>
@@ -77,7 +105,7 @@ export default async function MovementsPage({ searchParams }: MovementsPageProps
               </div>
             </div>
 
-            <SubmitButton>Registrar agora</SubmitButton>
+            <SubmitButton pending={isPending}>Registrar agora</SubmitButton>
           </form>
         </article>
 
@@ -97,6 +125,7 @@ export default async function MovementsPage({ searchParams }: MovementsPageProps
               openBarrels.map((item) => (
                 <div key={item.id} className="timeline-item">
                   <strong>{item.code}</strong>
+                  {item.notes && <div className="muted" style={{ fontWeight: 500 }}>{item.notes}</div>}
                   <div className="muted">
                     Cliente: {item.current_customer?.trade_name || item.current_customer?.name || "-"}
                   </div>
@@ -122,16 +151,15 @@ export default async function MovementsPage({ searchParams }: MovementsPageProps
         </div>
 
         <div className="timeline">
-          {data.movements.length ? (
-            data.movements.map((item) => (
+          {movements.length ? (
+            movements.map((item) => (
               <div key={item.id} className="timeline-item">
                 <div className="toolbar">
                   <strong>
                     {formatMovementType(item.movement_type)} • {item.barrel_code}
                   </strong>
                   <span className="muted">{formatDateTime(item.occurred_at)}</span>
-                </div>
-                <div className="muted">
+                </div>                {item.barrel?.notes && <div className="muted" style={{ fontWeight: 500 }}>{item.barrel.notes}</div>}                <div className="muted">
                   Cliente: {item.customer?.trade_name || item.customer?.name || "-"}
                 </div>
                 <div className="muted">Operador: {item.performer?.full_name || "-"}</div>

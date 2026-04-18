@@ -1,25 +1,90 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useMemo, useTransition } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { FlashMessage } from "@/components/ui/flash-message";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { hasSupabaseAdminEnv } from "@/lib/env";
-import { getUsers } from "@/lib/queries";
-import type { SearchParamsRecord } from "@/lib/types";
-import { formatDateTime, formatRole, getSingleParam, readFlash } from "@/lib/utils";
+import { Pagination } from "@/components/ui/pagination";
+import { useDashboardContext } from "@/components/providers/dashboard-provider";
+import {
+  DEFAULT_LIST_PAGE,
+  DEFAULT_LIST_PAGE_SIZE,
+  useUsersQuery,
+} from "@/lib/hooks/use-app-queries";
+import { useFlashState } from "@/lib/hooks/use-flash-state";
+import { formatDateTime, formatRole } from "@/lib/utils";
 
 import { deleteUserAction, saveUserAction } from "./actions";
 
-type UsersPageProps = {
-  searchParams: Promise<SearchParamsRecord>;
-};
-
-export default async function UsersPage({ searchParams }: UsersPageProps) {
-  const params = await searchParams;
-  const search = getSingleParam(params.q);
-  const flash = readFlash(params);
-  const users = await getUsers(search);
-  const editingId = getSingleParam(params.edit);
+export default function UsersPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const { hasSupabaseAdminEnv } = useDashboardContext();
+  const { flash, setFlash } = useFlashState();
+  const [isPending, startTransition] = useTransition();
+  const search = searchParams.get("q") ?? "";
+  const page = Number(searchParams.get("page") ?? DEFAULT_LIST_PAGE);
+  const editingId = searchParams.get("edit") ?? "";
+  const { data } = useUsersQuery(search, page, DEFAULT_LIST_PAGE_SIZE);
+  const users = data?.items ?? [];
   const editingItem = users.find((item) => item.id === editingId) ?? null;
+
+  const clearEditUrl = useMemo(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("edit");
+    const next = params.toString();
+    return next ? `/dashboard/usuarios?${next}` : "/dashboard/usuarios";
+  }, [searchParams]);
+
+  async function invalidateData() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["users"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["history"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard", "movement-page"] }),
+      queryClient.invalidateQueries({ queryKey: ["barrels"] }),
+      queryClient.invalidateQueries({ queryKey: ["customers"] }),
+    ]);
+  }
+
+  async function handleDelete(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+
+    startTransition(async () => {
+      const result = await deleteUserAction(formData);
+      setFlash({
+        error: result.status === "error" ? result.message : "",
+        success: result.status === "success" ? result.message : "",
+      });
+
+      if (result.status === "success") {
+        await invalidateData();
+      }
+    });
+  }
+
+  async function handleSave(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+
+    startTransition(async () => {
+      const result = await saveUserAction(formData);
+      setFlash({
+        error: result.status === "error" ? result.message : "",
+        success: result.status === "success" ? result.message : "",
+      });
+
+      if (result.status === "success") {
+        await invalidateData();
+        router.replace(clearEditUrl);
+      }
+    });
+  }
 
   return (
     <>
@@ -28,8 +93,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
           <div className="brand-kicker">Administração</div>
           <h1>Usuários</h1>
           <p className="brand-subtitle">
-            O primeiro admin nasce no Supabase Auth. Depois disso, criação, edição e exclusão
-            passam a ser feitas aqui dentro.
+            Gerencie acessos e permissões de colaboradores e administradores.
           </p>
         </div>
       </section>
@@ -94,7 +158,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
                             Editar
                           </Link>
 
-                          <form action={deleteUserAction} className="inline-form">
+                          <form className="inline-form" onSubmit={handleDelete}>
                             <input name="userId" type="hidden" value={item.id} />
                             <button className="button-danger" type="submit">
                               Excluir
@@ -114,6 +178,16 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
               </tbody>
             </table>
           </div>
+
+          {data && (
+            <Pagination
+              page={data.page}
+              pageSize={data.pageSize}
+              total={data.total}
+              baseUrl="/dashboard/usuarios"
+              searchParam={search}
+            />
+          )}
         </article>
 
         <article className="card stack">
@@ -126,7 +200,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
             </p>
           </div>
 
-          <form action={saveUserAction} className="stack">
+          <form key={editingItem?.id ?? "new"} className="stack" onSubmit={handleSave}>
             <input name="userId" type="hidden" value={editingItem?.id ?? ""} />
 
             <div className="field-grid">
@@ -182,9 +256,9 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
             </div>
 
             <div className="toolbar">
-              <SubmitButton>{editingItem ? "Salvar alterações" : "Criar usuário"}</SubmitButton>
+              <SubmitButton pending={isPending}>{editingItem ? "Salvar alterações" : "Criar usuário"}</SubmitButton>
               {editingItem ? (
-                <Link className="button-ghost" href="/dashboard/usuarios">
+                <Link className="button-ghost" href={clearEditUrl}>
                   Cancelar edição
                 </Link>
               ) : null}

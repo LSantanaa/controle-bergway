@@ -1,11 +1,20 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useMemo, useTransition } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { FlashMessage } from "@/components/ui/flash-message";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { requireActiveProfile } from "@/lib/auth";
-import { getCustomers } from "@/lib/queries";
-import type { SearchParamsRecord } from "@/lib/types";
-import { getSingleParam, readFlash } from "@/lib/utils";
+import { Pagination } from "@/components/ui/pagination";
+import { useDashboardContext } from "@/components/providers/dashboard-provider";
+import {
+  DEFAULT_LIST_PAGE,
+  DEFAULT_LIST_PAGE_SIZE,
+  useCustomersQuery,
+} from "@/lib/hooks/use-app-queries";
+import { useFlashState } from "@/lib/hooks/use-flash-state";
 
 import {
   deleteCustomerAction,
@@ -13,19 +22,75 @@ import {
   toggleCustomerAction,
 } from "./actions";
 
-type CustomersPageProps = {
-  searchParams: Promise<SearchParamsRecord>;
-};
-
-export default async function CustomersPage({ searchParams }: CustomersPageProps) {
-  const profile = await requireActiveProfile();
-  const params = await searchParams;
-  const search = getSingleParam(params.q);
-  const flash = readFlash(params);
-  const customers = await getCustomers(search);
-  const editingId = getSingleParam(params.edit);
+export default function CustomersPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const { profile } = useDashboardContext();
+  const { flash, setFlash } = useFlashState();
+  const [isPending, startTransition] = useTransition();
+  const search = searchParams.get("q") ?? "";
+  const page = Number(searchParams.get("page") ?? DEFAULT_LIST_PAGE);
+  const editingId = searchParams.get("edit") ?? "";
+  const { data } = useCustomersQuery(search, page, DEFAULT_LIST_PAGE_SIZE);
+  const customers = data?.items ?? [];
   const editingItem = customers.find((item) => item.id === editingId) ?? null;
   const isAdmin = profile.role === "admin";
+
+  const clearEditUrl = useMemo(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("edit");
+    const next = params.toString();
+    return next ? `/dashboard/clientes?${next}` : "/dashboard/clientes";
+  }, [searchParams]);
+
+  async function invalidateData() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["customers"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard", "movement-page"] }),
+      queryClient.invalidateQueries({ queryKey: ["history"] }),
+      queryClient.invalidateQueries({ queryKey: ["barrels"] }),
+    ]);
+  }
+
+  async function handleRowAction(
+    event: React.FormEvent<HTMLFormElement>,
+    action: (formData: FormData) => Promise<{ status: "success" | "error"; message: string }>,
+  ) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+
+    startTransition(async () => {
+      const result = await action(formData);
+      setFlash({
+        error: result.status === "error" ? result.message : "",
+        success: result.status === "success" ? result.message : "",
+      });
+
+      if (result.status === "success") {
+        await invalidateData();
+      }
+    });
+  }
+
+  async function handleSave(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+
+    startTransition(async () => {
+      const result = await saveCustomerAction(formData);
+      setFlash({
+        error: result.status === "error" ? result.message : "",
+        success: result.status === "success" ? result.message : "",
+      });
+
+      if (result.status === "success") {
+        await invalidateData();
+        router.replace(clearEditUrl);
+      }
+    });
+  }
 
   return (
     <>
@@ -103,14 +168,20 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                                 Editar
                               </Link>
 
-                              <form action={toggleCustomerAction} className="inline-form">
+                              <form
+                                className="inline-form"
+                                onSubmit={(event) => handleRowAction(event, toggleCustomerAction)}
+                              >
                                 <input name="customerId" type="hidden" value={item.id} />
                                 <button className="button-secondary" type="submit">
                                   {item.is_active ? "Arquivar" : "Reativar"}
                                 </button>
                               </form>
 
-                              <form action={deleteCustomerAction} className="inline-form">
+                              <form
+                                className="inline-form"
+                                onSubmit={(event) => handleRowAction(event, deleteCustomerAction)}
+                              >
                                 <input name="customerId" type="hidden" value={item.id} />
                                 <button className="button-danger" type="submit">
                                   Excluir
@@ -134,6 +205,16 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
               </tbody>
             </table>
           </div>
+
+          {data && (
+            <Pagination
+              page={data.page}
+              pageSize={data.pageSize}
+              total={data.total}
+              baseUrl="/dashboard/clientes"
+              searchParam={search}
+            />
+          )}
         </article>
 
         {isAdmin ? (
@@ -141,11 +222,13 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
             <div>
               <h2 style={{ margin: 0 }}>{editingItem ? "Editar cliente" : "Novo cliente"}</h2>
               <p className="muted">
-                Dados essenciais para operação e histórico sem dependência de modal.
+                {editingItem
+                  ? "Altere os dados do cliente e clique em salvar para atualizar as informações."
+                  : "Preencha os dados do cliente e clique em cadastrar para adicionar à base."}
               </p>
             </div>
 
-            <form action={saveCustomerAction} className="stack">
+            <form key={editingItem?.id ?? "new"} className="stack" onSubmit={handleSave}>
               <input name="customerId" type="hidden" value={editingItem?.id ?? ""} />
 
               <div className="field-grid">
@@ -198,9 +281,9 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
               </div>
 
               <div className="toolbar">
-                <SubmitButton>{editingItem ? "Salvar alterações" : "Cadastrar cliente"}</SubmitButton>
+                <SubmitButton pending={isPending}>{editingItem ? "Salvar alteraÃ§Ãµes" : "Cadastrar cliente"}</SubmitButton>
                 {editingItem ? (
-                  <Link className="button-ghost" href="/dashboard/clientes">
+                  <Link className="button-ghost" href={clearEditUrl}>
                     Cancelar edição
                   </Link>
                 ) : null}

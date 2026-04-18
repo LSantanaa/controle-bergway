@@ -1,19 +1,12 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-
 import { requireActiveProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { buildFeedbackPath, normalizeNullableText, normalizeText } from "@/lib/utils";
+import type { ActionResult } from "@/lib/types";
+import { normalizeNullableText, normalizeText } from "@/lib/utils";
+import { searchBarrelByCode } from "@/lib/queries";
 
-const BASE_PATH = "/dashboard/movimentacoes";
-
-function finish(type: "success" | "error", message: string) {
-  redirect(buildFeedbackPath(BASE_PATH, type, message));
-}
-
-export async function registerMovementAction(formData: FormData) {
+export async function registerMovementAction(formData: FormData): Promise<ActionResult> {
   await requireActiveProfile();
 
   const supabase = await createClient();
@@ -23,7 +16,37 @@ export async function registerMovementAction(formData: FormData) {
   const notes = normalizeNullableText(formData.get("notes"));
 
   if (!barrelCode || !movementType) {
-    finish("error", "Informe o barril e o tipo de movimentação.");
+    return { status: "error", message: "Informe o barril e o tipo de movimentação." };
+  }
+
+  // Validate barrel exists and is available
+  try {
+    const barrel = await searchBarrelByCode(barrelCode);
+    
+    if (!barrel) {
+      return { status: "error", message: "Barril não encontrado." };
+    }
+
+    // If checkout (saída), barrel must be available (status = 'in')
+    if (movementType === "checkout" && barrel.status === "out") {
+      return { 
+        status: "error", 
+        message: `Equipamento "${barrel.code}" indisponível. Já está fora com cliente.` 
+      };
+    }
+
+    // If checkin (entrada), barrel must be out (status = 'out')
+    if (movementType === "checkin" && barrel.status !== "out") {
+      return { 
+        status: "error", 
+        message: `Equipamento "${barrel.code}" não está em saída. Verifique o histórico.` 
+      };
+    }
+  } catch (error) {
+    return {
+      status: "error",
+      message: "Erro ao validar barril.",
+    };
   }
 
   const { error } = await supabase.rpc("register_barrel_movement", {
@@ -34,12 +57,11 @@ export async function registerMovementAction(formData: FormData) {
   });
 
   if (error) {
-    finish("error", error.message || "Não foi possível registrar a movimentação.");
+    return {
+      status: "error",
+      message: error.message || "Não foi possível registrar a movimentação.",
+    };
   }
 
-  revalidatePath("/dashboard");
-  revalidatePath("/dashboard/historico");
-  revalidatePath("/dashboard/barris");
-  revalidatePath(BASE_PATH);
-  finish("success", "Movimentação registrada.");
+  return { status: "success", message: "Movimentação registrada." };
 }

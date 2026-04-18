@@ -10,8 +10,8 @@ create table if not exists public.profiles (
   full_name text not null,
   role public.user_role not null default 'collaborator',
   is_active boolean not null default false,
-  created_at timestamptz not null default timezone('utc', now()),
-  updated_at timestamptz not null default timezone('utc', now())
+  created_at timestamptz not null default timezone('America/Sao_Paulo', now()),
+  updated_at timestamptz not null default timezone('America/Sao_Paulo', now())
 );
 
 create table if not exists public.customers (
@@ -23,8 +23,8 @@ create table if not exists public.customers (
   city text,
   notes text,
   is_active boolean not null default true,
-  created_at timestamptz not null default timezone('utc', now()),
-  updated_at timestamptz not null default timezone('utc', now())
+  created_at timestamptz not null default timezone('America/Sao_Paulo', now()),
+  updated_at timestamptz not null default timezone('America/Sao_Paulo', now())
 );
 
 create table if not exists public.barrels (
@@ -35,8 +35,8 @@ create table if not exists public.barrels (
   notes text,
   is_active boolean not null default true,
   current_customer_id uuid references public.customers (id),
-  created_at timestamptz not null default timezone('utc', now()),
-  updated_at timestamptz not null default timezone('utc', now())
+  created_at timestamptz not null default timezone('America/Sao_Paulo', now()),
+  updated_at timestamptz not null default timezone('America/Sao_Paulo', now())
 );
 
 create table if not exists public.movements (
@@ -47,7 +47,7 @@ create table if not exists public.movements (
   movement_type public.movement_type not null,
   notes text,
   performed_by uuid not null references public.profiles (id),
-  occurred_at timestamptz not null default timezone('utc', now())
+  occurred_at timestamptz not null default timezone('America/Sao_Paulo', now())
 );
 
 create or replace function public.touch_updated_at()
@@ -55,7 +55,7 @@ returns trigger
 language plpgsql
 as $$
 begin
-  new.updated_at = timezone('utc', now());
+  new.updated_at = timezone('America/Sao_Paulo', now());
   return new;
 end;
 $$;

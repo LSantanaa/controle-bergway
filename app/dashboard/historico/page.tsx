@@ -1,19 +1,19 @@
-import { getHistory } from "@/lib/queries";
-import type { SearchParamsRecord } from "@/lib/types";
+"use client";
+
+import { useSearchParams } from "next/navigation";
+
 import {
-  formatDateTime,
-  formatMovementType,
-  getSingleParam,
-} from "@/lib/utils";
+  DEFAULT_HISTORY_PAGE_SIZE,
+  DEFAULT_LIST_PAGE,
+  useHistoryQuery,
+} from "@/lib/hooks/use-app-queries";
+import { formatDateTime, formatMovementType } from "@/lib/utils";
 
-type HistoryPageProps = {
-  searchParams: Promise<SearchParamsRecord>;
-};
-
-export default async function HistoryPage({ searchParams }: HistoryPageProps) {
-  const params = await searchParams;
-  const search = getSingleParam(params.q);
-  const movements = await getHistory(search);
+export default function HistoryPage() {
+  const searchParams = useSearchParams();
+  const search = searchParams.get("q") ?? "";
+  const { data } = useHistoryQuery(search, DEFAULT_LIST_PAGE, DEFAULT_HISTORY_PAGE_SIZE);
+  const movements = data?.items ?? [];
 
   return (
     <>
@@ -49,6 +49,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
                 <th>Quando</th>
                 <th>Tipo</th>
                 <th>Equipamento</th>
+                <th>Tipo/Modelo</th>
                 <th>Cliente</th>
                 <th>Operador</th>
                 <th>Observações</th>
@@ -61,6 +62,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
                     <td>{formatDateTime(item.occurred_at)}</td>
                     <td>{formatMovementType(item.movement_type)}</td>
                     <td>{item.barrel_code}</td>
+                    <td><strong>{item.barrel?.notes || "-"}</strong></td>
                     <td>{item.customer?.trade_name || item.customer?.name || "-"}</td>
                     <td>{item.performer?.full_name || "-"}</td>
                     <td>{item.notes || "-"}</td>
@@ -68,7 +70,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <div className="empty-state">Nenhum registro encontrado.</div>
                   </td>
                 </tr>

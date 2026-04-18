@@ -1,21 +1,25 @@
+"use client";
+
 import Link from "next/link";
 
-import { getDashboardData } from "@/lib/queries";
+import { useDashboardSummaryQuery } from "@/lib/hooks/use-app-queries";
+import { useDashboardContext } from "@/components/providers/dashboard-provider";
 import { formatBarrelStatus, formatDateTime, formatMovementType } from "@/lib/utils";
+import { SkeletonStat, SkeletonTimelineItem } from "@/components/ui/skeleton";
 
-export default async function DashboardPage() {
-  const data = await getDashboardData();
-  const activeBarrels = data.barrels.filter((item) => item.is_active);
-  const openBarrels = activeBarrels.filter((item) => item.status === "out");
-  const availableBarrels = activeBarrels.filter((item) => item.status === "available");
-  const activeCustomers = data.customers.filter((item) => item.is_active);
+export default function DashboardPage() {
+  const { profile } = useDashboardContext();
+  const { data, isLoading } = useDashboardSummaryQuery();
 
   const stats = [
-    { label: "Barris ativos", value: activeBarrels.length },
-    { label: "Disponíveis", value: availableBarrels.length },
-    { label: "Com cliente", value: openBarrels.length },
-    { label: "Clientes ativos", value: activeCustomers.length },
+    { label: "Barris ativos", value: data?.stats.activeBarrels ?? 0 },
+    { label: "Disponíveis", value: data?.stats.availableBarrels ?? 0 },
+    { label: "Com cliente", value: data?.stats.openBarrels ?? 0 },
+    { label: "Clientes ativos", value: data?.stats.activeCustomers ?? 0 },
   ];
+
+  const movements = data?.recentMovements ?? [];
+  const openBarrels = data?.openBarrels ?? [];
 
   return (
     <>
@@ -32,7 +36,7 @@ export default async function DashboardPage() {
           <Link className="button" href="/dashboard/movimentacoes">
             Registrar movimentação
           </Link>
-          {data.profile.role === "admin" ? (
+          {profile.role === "admin" ? (
             <Link className="button-ghost" href="/dashboard/usuarios">
               Gerenciar usuários
             </Link>
@@ -41,12 +45,21 @@ export default async function DashboardPage() {
       </section>
 
       <section className="stats">
-        {stats.map((item) => (
-          <article key={item.label} className="stat-card">
-            <span className="muted">{item.label}</span>
-            <div className="stat-value">{item.value}</div>
-          </article>
-        ))}
+        {isLoading ? (
+          <>
+            <SkeletonStat />
+            <SkeletonStat />
+            <SkeletonStat />
+            <SkeletonStat />
+          </>
+        ) : (
+          stats.map((item) => (
+            <article key={item.label} className="stat-card">
+              <span className="muted">{item.label}</span>
+              <div className="stat-value">{item.value}</div>
+            </article>
+          ))
+        )}
       </section>
 
       <section className="split">
@@ -62,8 +75,14 @@ export default async function DashboardPage() {
           </div>
 
           <div className="timeline">
-            {data.movements.length ? (
-              data.movements.map((item) => (
+            {isLoading ? (
+              <>
+                <SkeletonTimelineItem />
+                <SkeletonTimelineItem />
+                <SkeletonTimelineItem />
+              </>
+            ) : movements.length ? (
+              movements.map((item) => (
                 <div key={item.id} className="timeline-item">
                   <div className="toolbar">
                     <strong>
@@ -71,6 +90,7 @@ export default async function DashboardPage() {
                     </strong>
                     <span className="muted">{formatDateTime(item.occurred_at)}</span>
                   </div>
+                  {item.barrel?.notes && <div className="muted" style={{ fontWeight: 500 }}>{item.barrel.notes}</div>}
                   <div className="muted">
                     Cliente: {item.customer?.trade_name || item.customer?.name || "-"}
                   </div>
@@ -86,19 +106,26 @@ export default async function DashboardPage() {
         <article className="card stack">
           <div>
             <h2 style={{ margin: 0 }}>Equipamentos com cliente</h2>
-            <p className="muted">Visão rápida do que ainda está fora da cervejaria.</p>
+            <p className="muted">Visão rápida do que ainda estão fora da cervejaria.</p>
           </div>
 
           <div className="timeline">
-            {openBarrels.length ? (
+            {isLoading ? (
+              <>
+                <SkeletonTimelineItem />
+                <SkeletonTimelineItem />
+                <SkeletonTimelineItem />
+              </>
+            ) : openBarrels.length ? (
               openBarrels.slice(0, 8).map((item) => (
                 <div key={item.id} className="timeline-item">
                   <strong>{item.code}</strong>
+                  {item.notes && <div className="muted" style={{ fontWeight: 500 }}>{item.notes}</div>}
                   <div className="muted">
                     {item.current_customer?.trade_name || item.current_customer?.name || "Sem cliente"}
                   </div>
                   <div className="muted">
-                    {item.capacity_liters}L • {formatBarrelStatus(item.status)}
+                    {item.capacity_liters}L - {formatBarrelStatus(item.status)}
                   </div>
                 </div>
               ))

@@ -43,6 +43,7 @@ export interface Movement {
   notes: string | null;
   occurred_at: string;
   barrel_code: string;
+  barrel?: { code: string; notes: string | null } | null;
   customer: Pick<Customer, "id" | "name" | "trade_name"> | null;
   performer: Pick<Profile, "id" | "full_name"> | null;
 }
@@ -52,4 +53,33 @@ export interface DashboardData {
   barrels: Barrel[];
   customers: Customer[];
   movements: Movement[];
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface DashboardSummaryData {
+  stats: {
+    activeBarrels: number;
+    availableBarrels: number;
+    openBarrels: number;
+    activeCustomers: number;
+  };
+  openBarrels: Barrel[];
+  recentMovements: Movement[];
+}
+
+export interface MovementPageData {
+  activeCustomers: Customer[];
+  openBarrels: Barrel[];
+  recentMovements: Movement[];
+}
+
+export interface ActionResult {
+  status: "success" | "error";
+  message: string;
 }

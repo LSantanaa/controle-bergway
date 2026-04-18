@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import "@/app/global.css";
+import { QueryProvider } from "@/components/providers/query-provider";
 
 export const metadata: Metadata = {
   title: "Controle de Equipamentos - Cervejaria Bergway",
@@ -19,7 +20,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        <QueryProvider>{children}</QueryProvider>
+      </body>
     </html>
   );
 }

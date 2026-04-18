@@ -1,25 +1,11 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-
 import { requireAdminProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { buildFeedbackPath, normalizeNullableText, normalizeText } from "@/lib/utils";
+import type { ActionResult } from "@/lib/types";
+import { normalizeNullableText, normalizeText } from "@/lib/utils";
 
-const BASE_PATH = "/dashboard/clientes";
-
-function finish(type: "success" | "error", message: string) {
-  redirect(buildFeedbackPath(BASE_PATH, type, message));
-}
-
-function refreshAll() {
-  revalidatePath("/dashboard");
-  revalidatePath("/dashboard/movimentacoes");
-  revalidatePath(BASE_PATH);
-}
-
-export async function saveCustomerAction(formData: FormData) {
+export async function saveCustomerAction(formData: FormData): Promise<ActionResult> {
   await requireAdminProfile();
 
   const supabase = await createClient();
@@ -32,7 +18,7 @@ export async function saveCustomerAction(formData: FormData) {
   const notes = normalizeNullableText(formData.get("notes"));
 
   if (!name) {
-    finish("error", "Nome do cliente é obrigatório.");
+    return { status: "error", message: "Nome do cliente é obrigatório." };
   }
 
   const payload = {
@@ -51,25 +37,23 @@ export async function saveCustomerAction(formData: FormData) {
   const { error } = await query;
 
   if (error) {
-    finish("error", "Não foi possível salvar o cliente.");
+    return { status: "error", message: "Não foi possível salvar o cliente." };
   }
 
-  refreshAll();
-  finish("success", customerId ? "Cliente atualizado." : "Cliente cadastrado.");
+  return {
+    status: "success",
+    message: customerId ? "Cliente atualizado." : "Cliente cadastrado.",
+  };
 }
 
-export async function toggleCustomerAction(formData: FormData) {
+export async function toggleCustomerAction(formData: FormData): Promise<ActionResult> {
   await requireAdminProfile();
 
   const supabase = await createClient();
   const customerId = normalizeText(formData.get("customerId"));
 
   const [{ data: customer }, { count: openCount }] = await Promise.all([
-    supabase
-      .from("customers")
-      .select("id, is_active")
-      .eq("id", customerId)
-      .maybeSingle(),
+    supabase.from("customers").select("id, is_active").eq("id", customerId).maybeSingle(),
     supabase
       .from("barrels")
       .select("id", { count: "exact", head: true })
@@ -78,29 +62,29 @@ export async function toggleCustomerAction(formData: FormData) {
   ]);
 
   if (!customer) {
-    finish("error", "Cliente não encontrado.");
+    return { status: "error", message: "Cliente não encontrado." };
   }
 
-  const currentCustomer = customer!;
-
-  if (currentCustomer.is_active && (openCount ?? 0) > 0) {
-    finish("error", "Esse cliente ainda possui barris em aberto.");
+  if (customer.is_active && (openCount ?? 0) > 0) {
+    return { status: "error", message: "Esse cliente ainda possui barris em aberto." };
   }
 
   const { error } = await supabase
     .from("customers")
-    .update({ is_active: !currentCustomer.is_active })
+    .update({ is_active: !customer.is_active })
     .eq("id", customerId);
 
   if (error) {
-    finish("error", "Não foi possível alterar o status do cliente.");
+    return { status: "error", message: "Não foi possível alterar o status do cliente." };
   }
 
-  refreshAll();
-  finish("success", currentCustomer.is_active ? "Cliente arquivado." : "Cliente reativado.");
+  return {
+    status: "success",
+    message: customer.is_active ? "Cliente arquivado." : "Cliente reativado.",
+  };
 }
 
-export async function deleteCustomerAction(formData: FormData) {
+export async function deleteCustomerAction(formData: FormData): Promise<ActionResult> {
   await requireAdminProfile();
 
   const supabase = await createClient();
@@ -112,26 +96,25 @@ export async function deleteCustomerAction(formData: FormData) {
       .select("id", { count: "exact", head: true })
       .eq("current_customer_id", customerId)
       .eq("status", "out"),
-    supabase
-      .from("movements")
-      .select("id", { count: "exact", head: true })
-      .eq("customer_id", customerId),
+    supabase.from("movements").select("id", { count: "exact", head: true }).eq("customer_id", customerId),
   ]);
 
   if ((openCount ?? 0) > 0) {
-    finish("error", "Esse cliente ainda possui barris em aberto.");
+    return { status: "error", message: "Esse cliente ainda possui barris em aberto." };
   }
 
   if ((movementCount ?? 0) > 0) {
-    finish("error", "Esse cliente já possui histórico. Use arquivar em vez de excluir.");
+    return {
+      status: "error",
+      message: "Esse cliente já possui histórico. Use arquivar em vez de excluir.",
+    };
   }
 
   const { error } = await supabase.from("customers").delete().eq("id", customerId);
 
   if (error) {
-    finish("error", "Não foi possível excluir o cliente.");
+    return { status: "error", message: "Não foi possível excluir o cliente." };
   }
 
-  refreshAll();
-  finish("success", "Cliente excluído com sucesso.");
+  return { status: "success", message: "Cliente excluído com sucesso." };
 }

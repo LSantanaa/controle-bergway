@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 
+import { prefetchRouteData } from "@/lib/hooks/use-app-queries";
 import type { Profile } from "@/lib/types";
 
 type SidebarNavProps = {
@@ -20,6 +22,8 @@ const links = [
 
 export function SidebarNav({ profile }: SidebarNavProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const queryClient = useQueryClient();
 
   return (
     <nav className="sidebar-nav">
@@ -33,7 +37,12 @@ export function SidebarNav({ profile }: SidebarNavProps) {
             <Link
               key={item.href}
               href={item.href}
+              prefetch
               className={isActive ? "sidebar-link sidebar-link-active" : "sidebar-link"}
+              onMouseEnter={() => {
+                router.prefetch(item.href);
+                void prefetchRouteData(queryClient, item.href, profile.role);
+              }}
             >
               {item.label}
             </Link>

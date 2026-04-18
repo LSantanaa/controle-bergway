@@ -1,30 +1,15 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-
 import { requireAdminProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import type { ActionResult } from "@/lib/types";
 import {
-  buildFeedbackPath,
   normalizeNullableText,
   normalizePositiveNumber,
   normalizeText,
 } from "@/lib/utils";
 
-const BASE_PATH = "/dashboard/barris";
-
-function finish(type: "success" | "error", message: string) {
-  redirect(buildFeedbackPath(BASE_PATH, type, message));
-}
-
-function refreshAll() {
-  revalidatePath("/dashboard");
-  revalidatePath("/dashboard/movimentacoes");
-  revalidatePath(BASE_PATH);
-}
-
-export async function saveBarrelAction(formData: FormData) {
+export async function saveBarrelAction(formData: FormData): Promise<ActionResult> {
   await requireAdminProfile();
 
   const supabase = await createClient();
@@ -34,7 +19,7 @@ export async function saveBarrelAction(formData: FormData) {
   const notes = normalizeNullableText(formData.get("notes"));
 
   if (!code || !capacity) {
-    finish("error", "Código e capacidade são obrigatórios.");
+    return { status: "error", message: "Código e capacidade são obrigatórios." };
   }
 
   const payload = {
@@ -50,14 +35,16 @@ export async function saveBarrelAction(formData: FormData) {
   const { error } = await query;
 
   if (error) {
-    finish("error", "Não foi possível salvar.");
+    return { status: "error", message: "Não foi possível salvar." };
   }
 
-  refreshAll();
-  finish("success", barrelId ? "Equipamento atualizado." : "Equipamento cadastrado.");
+  return {
+    status: "success",
+    message: barrelId ? "Equipamento atualizado." : "Equipamento cadastrado.",
+  };
 }
 
-export async function toggleBarrelAction(formData: FormData) {
+export async function toggleBarrelAction(formData: FormData): Promise<ActionResult> {
   await requireAdminProfile();
 
   const supabase = await createClient();
@@ -70,66 +57,59 @@ export async function toggleBarrelAction(formData: FormData) {
     .maybeSingle();
 
   if (fetchError || !barrel) {
-    finish("error", "Equipamento não encontrado.");
+    return { status: "error", message: "Equipamento não encontrado." };
   }
 
-  const currentBarrel = barrel!;
-
-  if (currentBarrel.is_active && currentBarrel.status === "out") {
-    finish("error", "Não arquive um equipamento que ainda está com cliente.");
+  if (barrel.is_active && barrel.status === "out") {
+    return { status: "error", message: "Não arquive um equipamento que ainda está com cliente." };
   }
 
   const { error } = await supabase
     .from("barrels")
-    .update({ is_active: !currentBarrel.is_active })
+    .update({ is_active: !barrel.is_active })
     .eq("id", barrelId);
 
   if (error) {
-    finish("error", "Não foi possível alterar o status do equipamento.");
+    return { status: "error", message: "Não foi possível alterar o status do equipamento." };
   }
 
-  refreshAll();
-  finish("success", currentBarrel.is_active ? "Equipamento arquivado." : "Equipamento reativado.");
+  return {
+    status: "success",
+    message: barrel.is_active ? "Equipamento arquivado." : "Equipamento reativado.",
+  };
 }
 
-export async function deleteBarrelAction(formData: FormData) {
+export async function deleteBarrelAction(formData: FormData): Promise<ActionResult> {
   await requireAdminProfile();
 
   const supabase = await createClient();
   const barrelId = normalizeText(formData.get("barrelId"));
 
   const [{ data: barrel }, { count }] = await Promise.all([
-    supabase
-      .from("barrels")
-      .select("id, status")
-      .eq("id", barrelId)
-      .maybeSingle(),
-    supabase
-      .from("movements")
-      .select("id", { count: "exact", head: true })
-      .eq("barrel_id", barrelId),
+    supabase.from("barrels").select("id, status").eq("id", barrelId).maybeSingle(),
+    supabase.from("movements").select("id", { count: "exact", head: true }).eq("barrel_id", barrelId),
   ]);
 
   if (!barrel) {
-    finish("error", "Equipamento não encontrado.");
+    return { status: "error", message: "Equipamento não encontrado." };
   }
 
-  const currentBarrel = barrel!;
-
-  if (currentBarrel.status === "out") {
-    finish("error", "Um equipamento em uso não pode ser excluído.");
+  if (barrel.status === "out") {
+    return { status: "error", message: "Um equipamento em uso não pode ser excluído." };
   }
 
   if ((count ?? 0) > 0) {
-    finish("error", "Esse equipamento já possui histórico. Use arquivar em vez de excluir.");
+    return {
+      status: "error",
+      message: "Esse equipamento já possui histórico. Use arquivar em vez de excluir.",
+    };
   }
 
   const { error } = await supabase.from("barrels").delete().eq("id", barrelId);
 
   if (error) {
-    finish("error", "Não foi possível excluir o equipamento.");
+    return { status: "error", message: "Não foi possível excluir o equipamento." };
   }
 
-  refreshAll();
-  finish("success", "Equipamento excluído com sucesso.");
+  return { status: "success", message: "Equipamento excluído com sucesso." };
 }
