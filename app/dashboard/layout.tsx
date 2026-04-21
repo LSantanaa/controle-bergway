@@ -24,7 +24,7 @@ export default async function DashboardLayout({
         <aside className="sidebar">
           <div className="stack">
             <div>
-              <div className="brand-kicker">Controle de Equipmentos</div>
+              <div className="brand-kicker">Controle de Equipamentos</div>
               <h2 style={{ margin: "10px 0 0", fontSize: "2rem" }}>{new Date().getFullYear()}</h2>
               <p className="muted" style={{ color: "rgba(255, 249, 240, 0.72)" }}>
                 Cervejaria Bergway
