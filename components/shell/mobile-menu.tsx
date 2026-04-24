@@ -55,7 +55,7 @@ export function MobileMenu({ profile, onSignOut }: MobileMenuProps) {
       <nav className={`mobile-menu ${isOpen ? "open" : ""}`}>
         <div className="mobile-menu-header">
           <div>
-            <div className="brand-kicker">Controle de Equipmentos</div>
+            <div className="brand-kicker">Controle de Equipamentos</div>
             <h2 style={{ margin: "10px 0 0", fontSize: "1.5rem" }}>
               {new Date().getFullYear()}
             </h2>
