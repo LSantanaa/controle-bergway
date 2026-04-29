@@ -256,6 +256,8 @@ button {
 .sidebar-nav {
   display: grid;
   gap: 8px;
+  overflow-y: auto;
+
 }
 
 .sidebar-link {
