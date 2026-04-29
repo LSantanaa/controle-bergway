@@ -5,7 +5,7 @@ import { hasSupabasePublicEnv, getSupabasePublicEnv } from "@/lib/env";
 
 export async function updateSession(request: NextRequest) {
   if (!hasSupabasePublicEnv) {
-    return NextResponse.next({ request });
+    return applySecurityHeaders(NextResponse.next({ request }));
   }
 
   const env = getSupabasePublicEnv();
@@ -29,7 +29,38 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+  const isProtectedPage = pathname.startsWith("/dashboard");
+  const isProtectedApi = pathname.startsWith("/api");
+
+  if (!user && isProtectedApi) {
+    return applySecurityHeaders(
+      NextResponse.json({ error: "Sessão obrigatória." }, { status: 401 }),
+    );
+  }
+
+  if (!user && isProtectedPage) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("error", "Faça login para continuar.");
+    return applySecurityHeaders(NextResponse.redirect(url));
+  }
+
+  return applySecurityHeaders(response);
+}
+
+function applySecurityHeaders(response: NextResponse) {
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=()",
+  );
 
   return response;
 }

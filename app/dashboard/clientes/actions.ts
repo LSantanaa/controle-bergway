@@ -1,12 +1,23 @@
 "use server";
 
 import { requireAdminProfile } from "@/lib/auth";
+import { enforceRateLimit, getClientIp } from "@/lib/security";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/types";
 import { normalizeNullableText, normalizeText } from "@/lib/utils";
 
 export async function saveCustomerAction(formData: FormData): Promise<ActionResult> {
-  await requireAdminProfile();
+  const profile = await requireAdminProfile();
+  const clientIp = await getClientIp();
+  const limit = await enforceRateLimit({
+    key: `admin:customer:save:${profile.id}:${clientIp}`,
+    limit: 40,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (limit) {
+    return limit;
+  }
 
   const supabase = await createClient();
   const customerId = normalizeText(formData.get("customerId"));
@@ -19,6 +30,10 @@ export async function saveCustomerAction(formData: FormData): Promise<ActionResu
 
   if (!name) {
     return { status: "error", message: "Nome do cliente é obrigatório." };
+  }
+
+  if (name.length > 160 || (phone?.length ?? 0) > 40) {
+    return { status: "error", message: "Nome ou telefone fora do limite permitido." };
   }
 
   const payload = {
@@ -47,7 +62,17 @@ export async function saveCustomerAction(formData: FormData): Promise<ActionResu
 }
 
 export async function toggleCustomerAction(formData: FormData): Promise<ActionResult> {
-  await requireAdminProfile();
+  const profile = await requireAdminProfile();
+  const clientIp = await getClientIp();
+  const limit = await enforceRateLimit({
+    key: `admin:customer:toggle:${profile.id}:${clientIp}`,
+    limit: 40,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (limit) {
+    return limit;
+  }
 
   const supabase = await createClient();
   const customerId = normalizeText(formData.get("customerId"));
@@ -85,7 +110,17 @@ export async function toggleCustomerAction(formData: FormData): Promise<ActionRe
 }
 
 export async function deleteCustomerAction(formData: FormData): Promise<ActionResult> {
-  await requireAdminProfile();
+  const profile = await requireAdminProfile();
+  const clientIp = await getClientIp();
+  const limit = await enforceRateLimit({
+    key: `admin:customer:delete:${profile.id}:${clientIp}`,
+    limit: 20,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (limit) {
+    return limit;
+  }
 
   const supabase = await createClient();
   const customerId = normalizeText(formData.get("customerId"));

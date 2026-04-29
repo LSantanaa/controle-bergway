@@ -30,12 +30,24 @@ async function fetchMovementPageData() {
   return fetchJson<MovementPageData>("/api/dashboard/movement-page");
 }
 
-async function fetchBarrels(search: string, page: number, pageSize: number) {
+async function fetchBarrelById(id: string) {
+  return fetchJson<Barrel>(`/api/barrels/${id}`);
+}
+
+async function fetchBarrels(
+  search: string,
+  page: number,
+  pageSize: number,
+  status = "",
+  capacity = "",
+) {
   const params = new URLSearchParams({
     q: search,
     page: String(page),
     pageSize: String(pageSize),
   });
+  if (status) params.set("status", status);
+  if (capacity) params.set("capacity", capacity);
 
   return fetchJson<PaginatedResult<Barrel>>(`/api/barrels?${params.toString()}`);
 }
@@ -60,12 +72,20 @@ async function fetchUsers(search: string, page: number, pageSize: number) {
   return fetchJson<PaginatedResult<Profile>>(`/api/users?${params.toString()}`);
 }
 
-async function fetchHistory(search: string, page: number, pageSize: number) {
+async function fetchHistory(
+  search: string,
+  page: number,
+  pageSize: number,
+  period = "",
+  type = "",
+) {
   const params = new URLSearchParams({
     q: search,
     page: String(page),
     pageSize: String(pageSize),
   });
+  if (period) params.set("period", period);
+  if (type) params.set("type", type);
 
   return fetchJson<PaginatedResult<Movement>>(`/api/history?${params.toString()}`);
 }
@@ -86,10 +106,26 @@ export function useMovementPageQuery() {
   });
 }
 
-export function useBarrelsQuery(search: string, page = DEFAULT_LIST_PAGE, pageSize = DEFAULT_LIST_PAGE_SIZE) {
+
+
+export function useBarrelByIdQuery(id: string) {
   return useQuery({
-    queryKey: queryKeys.barrels(search, page, pageSize),
-    queryFn: () => fetchBarrels(search, page, pageSize),
+    queryKey: ["barrel", id],
+    queryFn: () => fetchBarrelById(id),
+    enabled: !!id && id !== "undefined",
+  });
+}
+
+export function useBarrelsQuery(
+  search: string,
+  page = DEFAULT_LIST_PAGE,
+  pageSize = DEFAULT_LIST_PAGE_SIZE,
+  status = "",
+  capacity = "",
+) {
+  return useQuery({
+    queryKey: queryKeys.barrels(search, page, pageSize, status, capacity),
+    queryFn: () => fetchBarrels(search, page, pageSize, status, capacity),
     placeholderData: keepPreviousData,
     staleTime: 1000 * 60 * 5,
   });
@@ -121,10 +157,12 @@ export function useHistoryQuery(
   search: string,
   page = DEFAULT_LIST_PAGE,
   pageSize = DEFAULT_HISTORY_PAGE_SIZE,
+  period = "",
+  type = "",
 ) {
   return useQuery({
-    queryKey: queryKeys.history(search, page, pageSize),
-    queryFn: () => fetchHistory(search, page, pageSize),
+    queryKey: queryKeys.history(search, page, pageSize, period, type),
+    queryFn: () => fetchHistory(search, page, pageSize, period, type),
     placeholderData: keepPreviousData,
     staleTime: 1000 * 60 * 5,
   });

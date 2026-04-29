@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { FlashMessage } from "@/components/ui/flash-message";
@@ -17,7 +17,12 @@ import {
 import { useFlashState } from "@/lib/hooks/use-flash-state";
 import { formatBarrelStatus, formatDateTime } from "@/lib/utils";
 
-import { deleteBarrelAction, saveBarrelAction, toggleBarrelAction } from "./actions";
+import {
+  deleteBarrelAction,
+  saveBarrelAction,
+  toggleBarrelAction,
+} from "./actions";
+import type { Barrel } from "@/lib/types";
 
 export default function BarrelsPage() {
   const router = useRouter();
@@ -26,13 +31,25 @@ export default function BarrelsPage() {
   const { profile } = useDashboardContext();
   const { flash, setFlash } = useFlashState();
   const [isPending, startTransition] = useTransition();
+  const [selectedEditingItem, setSelectedEditingItem] =
+    useState<Barrel | null>(null);
   const search = searchParams.get("q") ?? "";
   const page = Number(searchParams.get("page") ?? DEFAULT_LIST_PAGE);
   const editingId = searchParams.get("edit") ?? "";
-  const { data } = useBarrelsQuery(search, page, DEFAULT_LIST_PAGE_SIZE);
+  const statusFilter = searchParams.get("status") ?? "";
+  const capacityFilter = searchParams.get("capacity") ?? "";
+  const { data, isFetching } = useBarrelsQuery(
+    search,
+    page,
+    DEFAULT_LIST_PAGE_SIZE,
+    statusFilter,
+    capacityFilter,
+  );
   const barrels = data?.items ?? [];
-  const editingItem = barrels.find((item) => item.id === editingId) ?? null;
+  const editingItem =
+    selectedEditingItem ?? barrels.find((item) => item.id === editingId) ?? null;
   const isAdmin = profile.role === "admin";
+  const formRef = useRef<HTMLElement>(null);
 
   const clearEditUrl = useMemo(() => {
     const params = new URLSearchParams(searchParams.toString());
@@ -40,6 +57,18 @@ export default function BarrelsPage() {
     const next = params.toString();
     return next ? `/dashboard/barris?${next}` : "/dashboard/barris";
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!editingId) {
+      setSelectedEditingItem(null);
+      return;
+    }
+
+    const currentPageItem = barrels.find((item) => item.id === editingId);
+    if (currentPageItem) {
+      setSelectedEditingItem(currentPageItem);
+    }
+  }, [barrels, editingId]);
 
   async function invalidateData() {
     await Promise.all([
@@ -51,7 +80,9 @@ export default function BarrelsPage() {
 
   async function handleRowAction(
     event: React.FormEvent<HTMLFormElement>,
-    action: (formData: FormData) => Promise<{ status: "success" | "error"; message: string }>,
+    action: (
+      formData: FormData,
+    ) => Promise<{ status: "success" | "error"; message: string }>,
   ) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
@@ -87,15 +118,67 @@ export default function BarrelsPage() {
     });
   }
 
+  const buildEditHref = (id: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("edit", id);
+    return `/dashboard/barris?${params.toString()}`;
+  };
+
+  function handleEdit(item: Barrel) {
+    setSelectedEditingItem(item);
+    window.history.pushState(null, "", buildEditHref(item.id));
+    requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function handleCancelEdit() {
+    setSelectedEditingItem(null);
+    window.history.pushState(null, "", clearEditUrl);
+  }
+
+  const buildFilterHref = (updates: Record<string, string>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("page");
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value) {
+        params.set(key, value);
+      } else {
+        params.delete(key);
+      }
+    });
+    const next = params.toString();
+    return next ? `/dashboard/barris?${next}` : "/dashboard/barris";
+  };
+
+  const statusHref = (status: string) =>
+    buildFilterHref({ status: statusFilter === status ? "" : status });
+
+  const capacityHref = (capacity: string) =>
+    buildFilterHref({ capacity: capacityFilter === capacity ? "" : capacity });
+
+  const comboHref = (status: string, capacity: string) =>
+    buildFilterHref(
+      statusFilter === status && capacityFilter === capacity
+        ? { status: "", capacity: "" }
+        : { status, capacity },
+    );
+
+  const filterClass = (isActive: boolean) =>
+    isActive ? "button-ghost filter-active" : "button-ghost";
+
+  const filterParams = {
+    ...(statusFilter ? { status: statusFilter } : {}),
+    ...(capacityFilter ? { capacity: capacityFilter } : {}),
+  };
+
   return (
     <>
       <section className="page-header">
         <div>
           <div className="brand-kicker">Cadastro</div>
           <h1>Equipamentos</h1>
-          <p className="brand-subtitle">
-            Gerenciamento de equipamentos.
-          </p>
+          <p className="brand-subtitle">Gerenciamento de equipamentos.</p>
         </div>
       </section>
 
@@ -106,7 +189,9 @@ export default function BarrelsPage() {
           <div className="toolbar">
             <div>
               <h2 style={{ margin: 0 }}>Lista de equipamentos</h2>
-              <p className="muted">Busca rápida e status de operação em tempo real.</p>
+              <p className="muted">
+                Busca rápida e status de operação em tempo real.
+              </p>
             </div>
 
             <form className="toolbar" method="get">
@@ -123,6 +208,35 @@ export default function BarrelsPage() {
           </div>
 
           <div className="table-wrap">
+            <div className="filter-row">
+              <Link className={filterClass(!statusFilter && !capacityFilter)} href={buildFilterHref({ status: "", capacity: "" })}>
+                Todos
+              </Link>
+              <Link className={filterClass(statusFilter === "available")} href={statusHref("available")}>
+                Disponíveis
+              </Link>
+              <Link className={filterClass(statusFilter === "out")} href={statusHref("out")}>
+                Com cliente
+              </Link>
+              <Link className={filterClass(capacityFilter === "30")} href={capacityHref("30")}>
+                30L
+              </Link>
+              <Link className={filterClass(capacityFilter === "50")} href={capacityHref("50")}>
+                50L
+              </Link>
+              <Link className={filterClass(statusFilter === "available" && capacityFilter === "30")} href={comboHref("available", "30")}>
+                30L disponíveis
+              </Link>
+              <Link className={filterClass(statusFilter === "available" && capacityFilter === "50")} href={comboHref("available", "50")}>
+                50L disponíveis
+              </Link>
+            </div>
+
+            {isFetching ? (
+              <div className="table-status" role="status">
+                Atualizando equipamentos...
+              </div>
+            ) : null}
             <table>
               <thead>
                 <tr>
@@ -138,9 +252,14 @@ export default function BarrelsPage() {
               <tbody>
                 {barrels.length ? (
                   barrels.map((item) => (
-                    <tr key={item.id} className={!item.is_active ? "row-muted" : undefined}>
+                    <tr
+                      key={item.id}
+                      className={!item.is_active ? "row-muted" : undefined}
+                    >
                       <td>{item.code}</td>
-                      <td><strong>{item.notes || "-"}</strong></td>
+                      <td>
+                        <strong>{item.notes || "-"}</strong>
+                      </td>
                       <td>{item.capacity_liters}L</td>
                       <td>
                         <span
@@ -153,31 +272,54 @@ export default function BarrelsPage() {
                           {formatBarrelStatus(item.status)}
                         </span>
                       </td>
-                      <td>{item.current_customer?.trade_name || item.current_customer?.name || "-"}</td>
+                      <td>
+                        {item.current_customer?.trade_name ||
+                          item.current_customer?.name ||
+                          "-"}
+                      </td>
                       <td>{formatDateTime(item.updated_at)}</td>
                       <td>
                         <div className="table-actions">
                           {isAdmin ? (
                             <>
-                              <Link className="button-ghost" href={`/dashboard/barris?edit=${item.id}`}>
+                              <button
+                                className="button-ghost"
+                                onClick={() => handleEdit(item)}
+                                type="button"
+                              >
                                 Editar
-                              </Link>
+                              </button>
 
                               <form
                                 className="inline-form"
-                                onSubmit={(event) => handleRowAction(event, toggleBarrelAction)}
+                                onSubmit={(event) =>
+                                  handleRowAction(event, toggleBarrelAction)
+                                }
                               >
-                                <input name="barrelId" type="hidden" value={item.id} />
-                                <button className="button-secondary" type="submit">
+                                <input
+                                  name="barrelId"
+                                  type="hidden"
+                                  value={item.id}
+                                />
+                                <button
+                                  className="button-secondary"
+                                  type="submit"
+                                >
                                   {item.is_active ? "Arquivar" : "Reativar"}
                                 </button>
                               </form>
 
                               <form
                                 className="inline-form"
-                                onSubmit={(event) => handleRowAction(event, deleteBarrelAction)}
+                                onSubmit={(event) =>
+                                  handleRowAction(event, deleteBarrelAction)
+                                }
                               >
-                                <input name="barrelId" type="hidden" value={item.id} />
+                                <input
+                                  name="barrelId"
+                                  type="hidden"
+                                  value={item.id}
+                                />
                                 <button className="button-danger" type="submit">
                                   Excluir
                                 </button>
@@ -192,8 +334,10 @@ export default function BarrelsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6}>
-                      <div className="empty-state">Nenhum equipamento encontrado.</div>
+                    <td colSpan={7}>
+                      <div className="empty-state">
+                        Nenhum equipamento encontrado.
+                      </div>
                     </td>
                   </tr>
                 )}
@@ -203,19 +347,22 @@ export default function BarrelsPage() {
 
           {data && (
             <Pagination
-              page={data.page}
+              page={page}
               pageSize={data.pageSize}
               total={data.total}
               baseUrl="/dashboard/barris"
               searchParam={search}
+              params={filterParams}
             />
           )}
         </article>
 
         {isAdmin ? (
-          <article className="card stack">
+          <article className="card stack" ref={formRef}>
             <div>
-              <h2 style={{ margin: 0 }}>{editingItem ? "Editar equipamento" : "Novo equipamento"}</h2>
+              <h2 style={{ margin: 0 }}>
+                {editingItem ? "Editar equipamento" : "Novo equipamento"}
+              </h2>
               <p className="muted">
                 {editingItem
                   ? "Ajuste código, capacidade e observações."
@@ -223,8 +370,16 @@ export default function BarrelsPage() {
               </p>
             </div>
 
-            <form key={editingItem?.id ?? "new"} className="stack" onSubmit={handleSave}>
-              <input name="barrelId" type="hidden" value={editingItem?.id ?? ""} />
+            <form
+              key={editingItem?.id ?? "new"}
+              className="stack"
+              onSubmit={handleSave}
+            >
+              <input
+                name="barrelId"
+                type="hidden"
+                value={editingItem?.id ?? ""}
+              />
 
               <div className="field-grid">
                 <div className="field">
@@ -263,11 +418,17 @@ export default function BarrelsPage() {
               </div>
 
               <div className="toolbar">
-                <SubmitButton pending={isPending}>{editingItem ? "Salvar alterações" : "Cadastrar equipamento"}</SubmitButton>
+                <SubmitButton pending={isPending}>
+                  {editingItem ? "Salvar alterações" : "Cadastrar equipamento"}
+                </SubmitButton>
                 {editingItem ? (
-                  <Link className="button-ghost" href={clearEditUrl}>
+                  <button
+                    className="button-ghost"
+                    onClick={handleCancelEdit}
+                    type="button"
+                  >
                     Cancelar edição
-                  </Link>
+                  </button>
                 ) : null}
               </div>
             </form>

@@ -1,6 +1,7 @@
 "use server";
 
 import { requireAdminProfile } from "@/lib/auth";
+import { enforceRateLimit, getClientIp } from "@/lib/security";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/types";
 import {
@@ -10,7 +11,17 @@ import {
 } from "@/lib/utils";
 
 export async function saveBarrelAction(formData: FormData): Promise<ActionResult> {
-  await requireAdminProfile();
+  const profile = await requireAdminProfile();
+  const clientIp = await getClientIp();
+  const limit = await enforceRateLimit({
+    key: `admin:barrel:save:${profile.id}:${clientIp}`,
+    limit: 40,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (limit) {
+    return limit;
+  }
 
   const supabase = await createClient();
   const barrelId = normalizeText(formData.get("barrelId"));
@@ -20,6 +31,10 @@ export async function saveBarrelAction(formData: FormData): Promise<ActionResult
 
   if (!code || !capacity) {
     return { status: "error", message: "Código e capacidade são obrigatórios." };
+  }
+
+  if (code.length > 40 || capacity > 1000) {
+    return { status: "error", message: "Código ou capacidade fora do limite permitido." };
   }
 
   const payload = {
@@ -45,7 +60,17 @@ export async function saveBarrelAction(formData: FormData): Promise<ActionResult
 }
 
 export async function toggleBarrelAction(formData: FormData): Promise<ActionResult> {
-  await requireAdminProfile();
+  const profile = await requireAdminProfile();
+  const clientIp = await getClientIp();
+  const limit = await enforceRateLimit({
+    key: `admin:barrel:toggle:${profile.id}:${clientIp}`,
+    limit: 40,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (limit) {
+    return limit;
+  }
 
   const supabase = await createClient();
   const barrelId = normalizeText(formData.get("barrelId"));
@@ -80,7 +105,17 @@ export async function toggleBarrelAction(formData: FormData): Promise<ActionResu
 }
 
 export async function deleteBarrelAction(formData: FormData): Promise<ActionResult> {
-  await requireAdminProfile();
+  const profile = await requireAdminProfile();
+  const clientIp = await getClientIp();
+  const limit = await enforceRateLimit({
+    key: `admin:barrel:delete:${profile.id}:${clientIp}`,
+    limit: 20,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (limit) {
+    return limit;
+  }
 
   const supabase = await createClient();
   const barrelId = normalizeText(formData.get("barrelId"));

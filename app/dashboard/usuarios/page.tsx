@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { FlashMessage } from "@/components/ui/flash-message";
@@ -18,6 +17,7 @@ import { useFlashState } from "@/lib/hooks/use-flash-state";
 import { formatDateTime, formatRole } from "@/lib/utils";
 
 import { deleteUserAction, saveUserAction } from "./actions";
+import type { Profile } from "@/lib/types";
 
 export default function UsersPage() {
   const router = useRouter();
@@ -26,12 +26,19 @@ export default function UsersPage() {
   const { hasSupabaseAdminEnv } = useDashboardContext();
   const { flash, setFlash } = useFlashState();
   const [isPending, startTransition] = useTransition();
+  const [selectedEditingItem, setSelectedEditingItem] =
+    useState<Profile | null>(null);
   const search = searchParams.get("q") ?? "";
   const page = Number(searchParams.get("page") ?? DEFAULT_LIST_PAGE);
   const editingId = searchParams.get("edit") ?? "";
-  const { data } = useUsersQuery(search, page, DEFAULT_LIST_PAGE_SIZE);
+  const { data, isFetching } = useUsersQuery(
+    search,
+    page,
+    DEFAULT_LIST_PAGE_SIZE,
+  );
   const users = data?.items ?? [];
-  const editingItem = users.find((item) => item.id === editingId) ?? null;
+  const editingItem =
+    selectedEditingItem ?? users.find((item) => item.id === editingId) ?? null;
 
   const clearEditUrl = useMemo(() => {
     const params = new URLSearchParams(searchParams.toString());
@@ -39,6 +46,18 @@ export default function UsersPage() {
     const next = params.toString();
     return next ? `/dashboard/usuarios?${next}` : "/dashboard/usuarios";
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!editingId) {
+      setSelectedEditingItem(null);
+      return;
+    }
+
+    const currentPageItem = users.find((item) => item.id === editingId);
+    if (currentPageItem) {
+      setSelectedEditingItem(currentPageItem);
+    }
+  }, [editingId, users]);
 
   async function invalidateData() {
     await Promise.all([
@@ -86,6 +105,22 @@ export default function UsersPage() {
     });
   }
 
+  const buildEditHref = (id: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("edit", id);
+    return `/dashboard/usuarios?${params.toString()}`;
+  };
+
+  function handleEdit(item: Profile) {
+    setSelectedEditingItem(item);
+    window.history.pushState(null, "", buildEditHref(item.id));
+  }
+
+  function handleCancelEdit() {
+    setSelectedEditingItem(null);
+    window.history.pushState(null, "", clearEditUrl);
+  }
+
   return (
     <>
       <section className="page-header">
@@ -124,6 +159,11 @@ export default function UsersPage() {
           </div>
 
           <div className="table-wrap">
+            {isFetching ? (
+              <div className="table-status" role="status">
+                Atualizando usuários...
+              </div>
+            ) : null}
             <table>
               <thead>
                 <tr>
@@ -154,9 +194,13 @@ export default function UsersPage() {
                       <td>{formatDateTime(item.created_at)}</td>
                       <td>
                         <div className="table-actions">
-                          <Link className="button-ghost" href={`/dashboard/usuarios?edit=${item.id}`}>
+                          <button
+                            className="button-ghost"
+                            onClick={() => handleEdit(item)}
+                            type="button"
+                          >
                             Editar
-                          </Link>
+                          </button>
 
                           <form className="inline-form" onSubmit={handleDelete}>
                             <input name="userId" type="hidden" value={item.id} />
@@ -181,7 +225,7 @@ export default function UsersPage() {
 
           {data && (
             <Pagination
-              page={data.page}
+              page={page}
               pageSize={data.pageSize}
               total={data.total}
               baseUrl="/dashboard/usuarios"
@@ -258,9 +302,13 @@ export default function UsersPage() {
             <div className="toolbar">
               <SubmitButton pending={isPending}>{editingItem ? "Salvar alterações" : "Criar usuário"}</SubmitButton>
               {editingItem ? (
-                <Link className="button-ghost" href={clearEditUrl}>
+                <button
+                  className="button-ghost"
+                  onClick={handleCancelEdit}
+                  type="button"
+                >
                   Cancelar edição
-                </Link>
+                </button>
               ) : null}
             </div>
           </form>

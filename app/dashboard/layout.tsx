@@ -39,16 +39,15 @@ export default async function DashboardLayout({
               <div style={{ marginTop: 10 }}>
                 <span className="badge badge-warning">{formatRole(profile.role)}</span>
               </div>
+              <form action={signOutAction} className="sidebar-signout">
+                <button className="button-secondary" type="submit">
+                  Sair
+                </button>
+              </form>
             </div>
           </div>
 
           <SidebarNav profile={profile} />
-
-          <form action={signOutAction}>
-            <button className="button-secondary" type="submit">
-              Sair
-            </button>
-          </form>
         </aside>
 
         <main className="content">{children}</main>

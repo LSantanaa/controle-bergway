@@ -50,7 +50,9 @@ function normalizeMovement(row: MovementRow): Movement {
 function getRange(page: number, pageSize: number) {
   const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
   const safePageSize =
-    Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 100) : 20;
+    Number.isFinite(pageSize) && pageSize > 0
+      ? Math.min(Math.floor(pageSize), 100)
+      : 20;
 
   return {
     page: safePage,
@@ -74,12 +76,22 @@ function buildPaginatedResult<T>(
   };
 }
 
+function sanitizeSearchTerm(value: string) {
+  return value.trim().slice(0, 80).replace(/[%,()]/g, " ");
+}
+
 async function getMatchingCustomerIds(term: string) {
   const supabase = await createClient();
+  const safeTerm = sanitizeSearchTerm(term);
+
+  if (!safeTerm) {
+    return [];
+  }
+
   const { data, error } = await supabase
     .from("customers")
     .select("id")
-    .or(`name.ilike.%${term}%,trade_name.ilike.%${term}%`)
+    .or(`name.ilike.%${safeTerm}%,trade_name.ilike.%${safeTerm}%`)
     .limit(100);
 
   if (error) {
@@ -91,10 +103,16 @@ async function getMatchingCustomerIds(term: string) {
 
 async function getMatchingPerformerIds(term: string) {
   const supabase = await createClient();
+  const safeTerm = sanitizeSearchTerm(term);
+
+  if (!safeTerm) {
+    return [];
+  }
+
   const { data, error } = await supabase
     .from("profiles")
     .select("id")
-    .or(`full_name.ilike.%${term}%,email.ilike.%${term}%`)
+    .or(`full_name.ilike.%${safeTerm}%,email.ilike.%${safeTerm}%`)
     .limit(100);
 
   if (error) {
@@ -114,9 +132,11 @@ export async function getActiveCustomers(search = "") {
     .eq("is_active", true)
     .order("name");
 
-  if (search.trim()) {
+  const term = sanitizeSearchTerm(search);
+
+  if (term) {
     query = query.or(
-      `name.ilike.%${search.trim()}%,trade_name.ilike.%${search.trim()}%,city.ilike.%${search.trim()}%,phone.ilike.%${search.trim()}%`,
+      `name.ilike.%${term}%,trade_name.ilike.%${term}%,city.ilike.%${term}%,phone.ilike.%${term}%`,
     );
   }
 
@@ -221,7 +241,10 @@ export async function getBarrelStats() {
   const supabase = await createClient();
 
   const [activeResult, availableResult, openResult] = await Promise.all([
-    supabase.from("barrels").select("id", { count: "exact", head: true }).eq("is_active", true),
+    supabase
+      .from("barrels")
+      .select("id", { count: "exact", head: true })
+      .eq("is_active", true),
     supabase
       .from("barrels")
       .select("id", { count: "exact", head: true })
@@ -234,7 +257,11 @@ export async function getBarrelStats() {
       .eq("status", "out"),
   ]);
 
-  const firstError = [activeResult.error, availableResult.error, openResult.error].find(Boolean);
+  const firstError = [
+    activeResult.error,
+    availableResult.error,
+    openResult.error,
+  ].find(Boolean);
 
   if (firstError) {
     throw firstError;
@@ -264,12 +291,13 @@ export async function getCustomerStats() {
 }
 
 export async function getDashboardSummaryData(): Promise<DashboardSummaryData> {
-  const [stats, activeCustomers, openBarrels, recentMovements] = await Promise.all([
-    getBarrelStats(),
-    getCustomerStats(),
-    getOpenBarrels(8),
-    getRecentMovements(12),
-  ]);
+  const [stats, activeCustomers, openBarrels, recentMovements] =
+    await Promise.all([
+      getBarrelStats(),
+      getCustomerStats(),
+      getOpenBarrels(8),
+      getRecentMovements(12),
+    ]);
 
   return {
     stats: {
@@ -317,15 +345,19 @@ export async function getBarrelsPageData({
   page = 1,
   pageSize = 20,
   search = "",
+  status = "",
+  capacity,
 }: {
   page?: number;
   pageSize?: number;
   search?: string;
+  status?: string;
+  capacity?: number;
 }): Promise<PaginatedResult<Barrel>> {
   await requireActiveProfile();
   const supabase = await createClient();
   const range = getRange(page, pageSize);
-  const term = search.trim();
+  const term = sanitizeSearchTerm(search);
 
   let query = supabase
     .from("barrels")
@@ -336,11 +368,21 @@ export async function getBarrelsPageData({
     .order("code")
     .range(range.from, range.to);
 
+  if (status === "available" || status === "out") {
+    query = query.eq("status", status);
+  }
+
+  if (capacity === 30 || capacity === 50) {
+    query = query.eq("capacity_liters", capacity);
+  }
+
   if (term) {
     const customerIds = await getMatchingCustomerIds(term);
 
     if (customerIds.length) {
-      query = query.or(`code.ilike.%${term}%,current_customer_id.in.(${customerIds.join(",")})`);
+      query = query.or(
+        `code.ilike.%${term}%,current_customer_id.in.(${customerIds.join(",")})`,
+      );
     } else {
       query = query.ilike("code", `%${term}%`);
     }
@@ -360,6 +402,29 @@ export async function getBarrelsPageData({
   );
 }
 
+export async function getBarrelById(id: string): Promise<Barrel | null> {
+  if (!id || id === "undefined") {
+    return null;
+  }
+
+  await requireActiveProfile();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("barrels")
+    .select(
+      "id, code, capacity_liters, status, notes, is_active, current_customer_id, updated_at, current_customer:customers(name, trade_name)",
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ? normalizeBarrel(data as BarrelRow) : null;
+}
+
 export async function getCustomersPageData({
   page = 1,
   pageSize = 20,
@@ -372,13 +437,16 @@ export async function getCustomersPageData({
   await requireActiveProfile();
   const supabase = await createClient();
   const range = getRange(page, pageSize);
-  const term = search.trim();
+  const term = sanitizeSearchTerm(search);
 
   let query = supabase
     .from("customers")
-    .select("id, name, trade_name, contact_name, phone, city, notes, is_active", {
-      count: "exact",
-    })
+    .select(
+      "id, name, trade_name, contact_name, phone, city, notes, is_active",
+      {
+        count: "exact",
+      },
+    )
     .order("name")
     .range(range.from, range.to);
 
@@ -394,7 +462,12 @@ export async function getCustomersPageData({
     throw error;
   }
 
-  return buildPaginatedResult((data ?? []) as Customer[], count, range.page, range.pageSize);
+  return buildPaginatedResult(
+    (data ?? []) as Customer[],
+    count,
+    range.page,
+    range.pageSize,
+  );
 }
 
 export async function getUsersPageData({
@@ -409,11 +482,13 @@ export async function getUsersPageData({
   await requireAdminProfile();
   const supabase = await createClient();
   const range = getRange(page, pageSize);
-  const term = search.trim();
+  const term = sanitizeSearchTerm(search);
 
   let query = supabase
     .from("profiles")
-    .select("id, email, full_name, role, is_active, created_at", { count: "exact" })
+    .select("id, email, full_name, role, is_active, created_at", {
+      count: "exact",
+    })
     .order("full_name")
     .range(range.from, range.to);
 
@@ -427,22 +502,31 @@ export async function getUsersPageData({
     throw error;
   }
 
-  return buildPaginatedResult((data ?? []) as Profile[], count, range.page, range.pageSize);
+  return buildPaginatedResult(
+    (data ?? []) as Profile[],
+    count,
+    range.page,
+    range.pageSize,
+  );
 }
 
 export async function getHistoryPageData({
   page = 1,
   pageSize = 25,
   search = "",
+  period = "",
+  type = "",
 }: {
   page?: number;
   pageSize?: number;
   search?: string;
+  period?: string;
+  type?: string;
 }): Promise<PaginatedResult<Movement>> {
   await requireActiveProfile();
   const supabase = await createClient();
   const range = getRange(page, pageSize);
-  const term = search.trim();
+  const term = sanitizeSearchTerm(search);
 
   let query = supabase
     .from("movements")
@@ -452,6 +536,25 @@ export async function getHistoryPageData({
     )
     .order("occurred_at", { ascending: false })
     .range(range.from, range.to);
+
+  if (type === "checkout" || type === "checkin") {
+    query = query.eq("movement_type", type);
+  }
+
+  const now = new Date();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+
+  if (period === "today") {
+    query = query.gte("occurred_at", startOfToday.toISOString());
+  }
+
+  if (period === "7d" || period === "30d") {
+    const days = period === "7d" ? 7 : 30;
+    const start = new Date(now);
+    start.setDate(start.getDate() - days);
+    query = query.gte("occurred_at", start.toISOString());
+  }
 
   if (term) {
     const [customerIds, performerIds] = await Promise.all([
