@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { FlashMessage } from "@/components/ui/flash-message";
@@ -21,6 +20,7 @@ import {
   saveCustomerAction,
   toggleCustomerAction,
 } from "./actions";
+import type { Customer } from "@/lib/types";
 
 export default function CustomersPage() {
   const router = useRouter();
@@ -29,12 +29,19 @@ export default function CustomersPage() {
   const { profile } = useDashboardContext();
   const { flash, setFlash } = useFlashState();
   const [isPending, startTransition] = useTransition();
+  const [selectedEditingItem, setSelectedEditingItem] =
+    useState<Customer | null>(null);
   const search = searchParams.get("q") ?? "";
   const page = Number(searchParams.get("page") ?? DEFAULT_LIST_PAGE);
   const editingId = searchParams.get("edit") ?? "";
-  const { data } = useCustomersQuery(search, page, DEFAULT_LIST_PAGE_SIZE);
+  const { data, isFetching } = useCustomersQuery(
+    search,
+    page,
+    DEFAULT_LIST_PAGE_SIZE,
+  );
   const customers = data?.items ?? [];
-  const editingItem = customers.find((item) => item.id === editingId) ?? null;
+  const editingItem =
+    selectedEditingItem ?? customers.find((item) => item.id === editingId) ?? null;
   const isAdmin = profile.role === "admin";
 
   const clearEditUrl = useMemo(() => {
@@ -43,6 +50,18 @@ export default function CustomersPage() {
     const next = params.toString();
     return next ? `/dashboard/clientes?${next}` : "/dashboard/clientes";
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!editingId) {
+      setSelectedEditingItem(null);
+      return;
+    }
+
+    const currentPageItem = customers.find((item) => item.id === editingId);
+    if (currentPageItem) {
+      setSelectedEditingItem(currentPageItem);
+    }
+  }, [customers, editingId]);
 
   async function invalidateData() {
     await Promise.all([
@@ -92,6 +111,22 @@ export default function CustomersPage() {
     });
   }
 
+  const buildEditHref = (id: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("edit", id);
+    return `/dashboard/clientes?${params.toString()}`;
+  };
+
+  function handleEdit(item: Customer) {
+    setSelectedEditingItem(item);
+    window.history.pushState(null, "", buildEditHref(item.id));
+  }
+
+  function handleCancelEdit() {
+    setSelectedEditingItem(null);
+    window.history.pushState(null, "", clearEditUrl);
+  }
+
   return (
     <>
       <section className="page-header">
@@ -128,6 +163,11 @@ export default function CustomersPage() {
           </div>
 
           <div className="table-wrap">
+            {isFetching ? (
+              <div className="table-status" role="status">
+                Atualizando clientes...
+              </div>
+            ) : null}
             <table>
               <thead>
                 <tr>
@@ -164,9 +204,13 @@ export default function CustomersPage() {
                         <div className="table-actions">
                           {isAdmin ? (
                             <>
-                              <Link className="button-ghost" href={`/dashboard/clientes?edit=${item.id}`}>
+                              <button
+                                className="button-ghost"
+                                onClick={() => handleEdit(item)}
+                                type="button"
+                              >
                                 Editar
-                              </Link>
+                              </button>
 
                               <form
                                 className="inline-form"
@@ -208,7 +252,7 @@ export default function CustomersPage() {
 
           {data && (
             <Pagination
-              page={data.page}
+              page={page}
               pageSize={data.pageSize}
               total={data.total}
               baseUrl="/dashboard/clientes"
@@ -281,11 +325,15 @@ export default function CustomersPage() {
               </div>
 
               <div className="toolbar">
-                <SubmitButton pending={isPending}>{editingItem ? "Salvar alteraÃ§Ãµes" : "Cadastrar cliente"}</SubmitButton>
+                <SubmitButton pending={isPending}>{editingItem ? "Salvar alterações" : "Cadastrar cliente"}</SubmitButton>
                 {editingItem ? (
-                  <Link className="button-ghost" href={clearEditUrl}>
+                  <button
+                    className="button-ghost"
+                    onClick={handleCancelEdit}
+                    type="button"
+                  >
                     Cancelar edição
-                  </Link>
+                  </button>
                 ) : null}
               </div>
             </form>

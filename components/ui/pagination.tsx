@@ -6,9 +6,17 @@ interface PaginationProps {
   total: number;
   baseUrl: string;
   searchParam?: string;
+  params?: Record<string, string>;
 }
 
-export function Pagination({ page, pageSize, total, baseUrl, searchParam = "" }: PaginationProps) {
+export function Pagination({
+  page,
+  pageSize,
+  total,
+  baseUrl,
+  searchParam = "",
+  params: extraParams = {},
+}: PaginationProps) {
   const totalPages = Math.ceil(total / pageSize);
 
   if (totalPages <= 1) {
@@ -16,11 +24,11 @@ export function Pagination({ page, pageSize, total, baseUrl, searchParam = "" }:
   }
 
   const buildUrl = (newPage: number) => {
-    const params = new URLSearchParams();
-    params.set("page", String(newPage));
+    const params = new URLSearchParams(extraParams);
     if (searchParam) {
       params.set("q", searchParam);
     }
+    params.set("page", String(newPage));
     return `${baseUrl}?${params.toString()}`;
   };
 

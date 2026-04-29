@@ -64,50 +64,90 @@ export default function MovementsPage() {
 
       <FlashMessage error={flash.error} success={flash.success} />
 
-      <section className="split">
-        <article className="card stack">
-          <div>
-            <h2 style={{ margin: 0 }}>Registrar movimentação</h2>
-            <p className="muted">
-              Para saída, selecione o cliente. Para entrada, o próprio histórico fecha o ciclo.
-            </p>
-          </div>
+      <section className="movement-layout">
+        <div className="stack">
+          <article className="card stack">
+            <div>
+              <h2 style={{ margin: 0 }}>Registrar movimentação</h2>
+              <p className="muted">
+                Para saída, selecione o cliente. Para entrada, o próprio histórico fecha o ciclo.
+              </p>
+            </div>
 
-          <form className="stack" onSubmit={handleSubmit}>
-            <div className="field-grid">
-              <div className="field-grid-2">
-                <BarrelSearch onBarrelSelect={setSelectedBarrel} />
+            <form className="stack" onSubmit={handleSubmit}>
+              <div className="field-grid">
+                <div className="field-grid-2">
+                  <BarrelSearch onBarrelSelect={setSelectedBarrel} />
+
+                  <div className="field">
+                    <label htmlFor="movement_type">Tipo</label>
+                    <select className="select" defaultValue="checkout" id="movement_type" name="movement_type">
+                      <option value="checkout">Saída</option>
+                      <option value="checkin">Entrada</option>
+                    </select>
+                  </div>
+                </div>
 
                 <div className="field">
-                  <label htmlFor="movement_type">Tipo</label>
-                  <select className="select" defaultValue="checkout" id="movement_type" name="movement_type">
-                    <option value="checkout">Saída</option>
-                    <option value="checkin">Entrada</option>
+                  <label htmlFor="customer_id">Cliente para saída</label>
+                  <select className="select" id="customer_id" name="customer_id">
+                    <option value="">Selecione quando for saída</option>
+                    {activeCustomers.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.trade_name || item.name}
+                      </option>
+                    ))}
                   </select>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="notes">Observações</label>
+                  <textarea className="textarea" id="notes" name="notes" />
                 </div>
               </div>
 
-              <div className="field">
-                <label htmlFor="customer_id">Cliente para saída</label>
-                <select className="select" id="customer_id" name="customer_id">
-                  <option value="">Selecione quando for saída</option>
-                  {activeCustomers.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.trade_name || item.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <SubmitButton pending={isPending}>Registrar agora</SubmitButton>
+            </form>
+          </article>
 
-              <div className="field">
-                <label htmlFor="notes">Observações</label>
-                <textarea className="textarea" id="notes" name="notes" />
+          <article className="card stack">
+            <div className="toolbar">
+              <div>
+                <h2 style={{ margin: 0 }}>Últimas operações</h2>
+                <p className="muted">Leitura rápida da atividade mais recente.</p>
               </div>
+              <Link className="button-ghost" href="/dashboard/historico">
+                Histórico completo
+              </Link>
             </div>
 
-            <SubmitButton pending={isPending}>Registrar agora</SubmitButton>
-          </form>
-        </article>
+            <div className="timeline">
+              {movements.length ? (
+                movements.map((item) => (
+                  <div key={item.id} className="timeline-item">
+                    <div className="toolbar">
+                      <strong>
+                        {formatMovementType(item.movement_type)} • {item.barrel_code}
+                      </strong>
+                      <span className="muted">{formatDateTime(item.occurred_at)}</span>
+                    </div>
+                    {item.barrel?.notes && (
+                      <div className="muted" style={{ fontWeight: 500 }}>
+                        {item.barrel.notes}
+                      </div>
+                    )}
+                    <div className="muted">
+                      Cliente: {item.customer?.trade_name || item.customer?.name || "-"}
+                    </div>
+                    <div className="muted">Operador: {item.performer?.full_name || "-"}</div>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-state">Nenhuma movimentação registrada ainda.</div>
+              )}
+            </div>
+          </article>
+        </div>
 
         <article className="card stack">
           <div className="toolbar">
@@ -137,38 +177,6 @@ export default function MovementsPage() {
             )}
           </div>
         </article>
-      </section>
-
-      <section className="card stack">
-        <div className="toolbar">
-          <div>
-            <h2 style={{ margin: 0 }}>Últimas operações</h2>
-            <p className="muted">Leitura rápida da atividade mais recente.</p>
-          </div>
-          <Link className="button-ghost" href="/dashboard/historico">
-            Histórico completo
-          </Link>
-        </div>
-
-        <div className="timeline">
-          {movements.length ? (
-            movements.map((item) => (
-              <div key={item.id} className="timeline-item">
-                <div className="toolbar">
-                  <strong>
-                    {formatMovementType(item.movement_type)} • {item.barrel_code}
-                  </strong>
-                  <span className="muted">{formatDateTime(item.occurred_at)}</span>
-                </div>                {item.barrel?.notes && <div className="muted" style={{ fontWeight: 500 }}>{item.barrel.notes}</div>}                <div className="muted">
-                  Cliente: {item.customer?.trade_name || item.customer?.name || "-"}
-                </div>
-                <div className="muted">Operador: {item.performer?.full_name || "-"}</div>
-              </div>
-            ))
-          ) : (
-            <div className="empty-state">Nenhuma movimentação registrada ainda.</div>
-          )}
-        </div>
       </section>
     </>
   );

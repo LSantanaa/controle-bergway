@@ -1,13 +1,24 @@
 "use server";
 
 import { requireActiveProfile } from "@/lib/auth";
+import { enforceRateLimit, getClientIp } from "@/lib/security";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/types";
 import { normalizeNullableText, normalizeText } from "@/lib/utils";
 import { searchBarrelByCode } from "@/lib/queries";
 
 export async function registerMovementAction(formData: FormData): Promise<ActionResult> {
-  await requireActiveProfile();
+  const profile = await requireActiveProfile();
+  const clientIp = await getClientIp();
+  const limit = await enforceRateLimit({
+    key: `movement:create:${profile.id}:${clientIp}`,
+    limit: 60,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (limit) {
+    return limit;
+  }
 
   const supabase = await createClient();
   const barrelCode = normalizeText(formData.get("barrel_code"));
@@ -17,6 +28,14 @@ export async function registerMovementAction(formData: FormData): Promise<Action
 
   if (!barrelCode || !movementType) {
     return { status: "error", message: "Informe o barril e o tipo de movimentação." };
+  }
+
+  if (movementType !== "checkout" && movementType !== "checkin") {
+    return { status: "error", message: "Tipo de movimentação inválido." };
+  }
+
+  if (movementType === "checkout" && !customerId) {
+    return { status: "error", message: "Selecione o cliente para registrar a saída." };
   }
 
   // Validate barrel exists and is available

@@ -29,13 +29,11 @@ export function buildFeedbackPath(
 }
 
 export function formatDateTime(value: string) {
-  // Remove timezone info (+00 ou +03) porque os timestamps já estão em SP no banco
-  const cleanValue = value.replace(/[+-]\d{2}:\d{2}|[+-]\d{4}|\+00$/, '');
-  
   return new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
-  }).format(new Date(cleanValue));
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date(value));
 }
 
 export function formatRole(role: string) {

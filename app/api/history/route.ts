@@ -7,12 +7,16 @@ export async function GET(request: NextRequest) {
   const q = searchParams.get("q") ?? "";
   const page = Number(searchParams.get("page") ?? "1");
   const pageSize = Number(searchParams.get("pageSize") ?? "25");
+  const period = searchParams.get("period") ?? "";
+  const type = searchParams.get("type") ?? "";
 
   try {
     const data = await getHistoryPageData({
       search: q,
       page,
       pageSize,
+      period,
+      type,
     });
 
     return NextResponse.json(data);

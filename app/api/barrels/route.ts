@@ -7,12 +7,16 @@ export async function GET(request: NextRequest) {
   const q = searchParams.get("q") ?? "";
   const page = Number(searchParams.get("page") ?? "1");
   const pageSize = Number(searchParams.get("pageSize") ?? "20");
+  const status = searchParams.get("status") ?? "";
+  const capacity = Number(searchParams.get("capacity") ?? "");
 
   try {
     const data = await getBarrelsPageData({
       search: q,
       page,
       pageSize,
+      status,
+      capacity,
     });
 
     return NextResponse.json(data);

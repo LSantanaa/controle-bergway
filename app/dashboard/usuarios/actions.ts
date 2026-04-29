@@ -2,13 +2,24 @@
 
 import { requireAdminProfile, requireSession } from "@/lib/auth";
 import { hasSupabaseAdminEnv } from "@/lib/env";
+import { enforceRateLimit, getClientIp } from "@/lib/security";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/types";
 import { isTruthy, normalizeText } from "@/lib/utils";
 
 export async function saveUserAction(formData: FormData): Promise<ActionResult> {
-  await requireAdminProfile();
+  const profile = await requireAdminProfile();
+  const clientIp = await getClientIp();
+  const limit = await enforceRateLimit({
+    key: `admin:user:save:${profile.id}:${clientIp}`,
+    limit: 20,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (limit) {
+    return limit;
+  }
 
   const supabase = await createClient();
   const userId = normalizeText(formData.get("userId"));
@@ -22,8 +33,27 @@ export async function saveUserAction(formData: FormData): Promise<ActionResult> 
     return { status: "error", message: "Nome, e-mail e perfil são obrigatórios." };
   }
 
-  if (!userId && password.length < 6) {
-    return { status: "error", message: "Defina uma senha com pelo menos 6 caracteres." };
+  if (fullName.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { status: "error", message: "Nome ou e-mail inválido." };
+  }
+
+  if (role !== "admin" && role !== "collaborator") {
+    return { status: "error", message: "Perfil inválido." };
+  }
+
+  if (password && password.length < 8) {
+    return { status: "error", message: "Defina uma senha com pelo menos 8 caracteres." };
+  }
+
+  if (!userId && !password) {
+    return { status: "error", message: "Defina uma senha inicial." };
+  }
+
+  if (userId === profile.id && (role !== "admin" || !isActive)) {
+    return {
+      status: "error",
+      message: "Não altere o próprio perfil administrador ou status de acesso.",
+    };
   }
 
   if (!userId) {
@@ -130,7 +160,17 @@ export async function saveUserAction(formData: FormData): Promise<ActionResult> 
 }
 
 export async function deleteUserAction(formData: FormData): Promise<ActionResult> {
-  await requireAdminProfile();
+  const profile = await requireAdminProfile();
+  const clientIp = await getClientIp();
+  const limit = await enforceRateLimit({
+    key: `admin:user:delete:${profile.id}:${clientIp}`,
+    limit: 10,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (limit) {
+    return limit;
+  }
 
   if (!hasSupabaseAdminEnv) {
     return {

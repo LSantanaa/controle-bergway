@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { hasSupabasePublicEnv } from "@/lib/env";
+import { enforceRateLimit, getClientIp } from "@/lib/security";
 import { createClient } from "@/lib/supabase/server";
 import { buildFeedbackPath, normalizeText } from "@/lib/utils";
 
@@ -15,9 +16,30 @@ export async function signInAction(formData: FormData) {
 
   const email = normalizeText(formData.get("email")).toLowerCase();
   const password = normalizeText(formData.get("password"));
+  const clientIp = await getClientIp();
 
   if (!email || !password) {
     redirect(buildFeedbackPath(LOGIN_PATH, "error", "Informe e-mail e senha."));
+  }
+
+  const ipLimit = await enforceRateLimit({
+    key: `login:ip:${clientIp}`,
+    limit: 10,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (ipLimit) {
+    redirect(buildFeedbackPath(LOGIN_PATH, "error", ipLimit.message));
+  }
+
+  const accountLimit = await enforceRateLimit({
+    key: `login:account:${email}`,
+    limit: 5,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (accountLimit) {
+    redirect(buildFeedbackPath(LOGIN_PATH, "error", accountLimit.message));
   }
 
   const supabase = await createClient();

@@ -81,6 +81,18 @@ export function MobileMenu({ profile, onSignOut }: MobileMenuProps) {
           <div style={{ marginTop: 10 }}>
             <span className="badge badge-warning">{formatRole(profile.role)}</span>
           </div>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setIsOpen(false);
+              await onSignOut();
+            }}
+            className="sidebar-signout"
+          >
+            <button className="button-secondary" type="submit">
+              Sair
+            </button>
+          </form>
         </div>
 
         <div className="mobile-menu-links">
@@ -102,18 +114,6 @@ export function MobileMenu({ profile, onSignOut }: MobileMenuProps) {
           })}
         </div>
 
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setIsOpen(false);
-            await onSignOut();
-          }}
-          className="mobile-menu-footer"
-        >
-          <button className="button-secondary" type="submit" style={{ width: "100%" }}>
-            Sair
-          </button>
-        </form>
       </nav>
     </>
   );
