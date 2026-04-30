@@ -13,14 +13,23 @@ interface BarrelInfo {
 
 interface BarrelSearchProps {
   onBarrelSelect?: (barrel: BarrelInfo | null) => void;
+  resetSignal?: number;
 }
 
-export function BarrelSearch({ onBarrelSelect }: BarrelSearchProps) {
+export function BarrelSearch({ onBarrelSelect, resetSignal = 0 }: BarrelSearchProps) {
   const [code, setCode] = useState("");
   const [barrel, setBarrel] = useState<BarrelInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const cacheRef = useRef<Map<string, BarrelInfo | null>>(new Map());
+
+  useEffect(() => {
+    setCode("");
+    setBarrel(null);
+    setError("");
+    setLoading(false);
+    onBarrelSelect?.(null);
+  }, [resetSignal, onBarrelSelect]);
 
   useEffect(() => {
     setError("");

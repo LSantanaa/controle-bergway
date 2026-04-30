@@ -38,27 +38,24 @@ export async function registerMovementAction(formData: FormData): Promise<Action
     return { status: "error", message: "Selecione o cliente para registrar a saída." };
   }
 
-  // Validate barrel exists and is available
   try {
     const barrel = await searchBarrelByCode(barrelCode);
-    
+
     if (!barrel) {
       return { status: "error", message: "Barril não encontrado." };
     }
 
-    // If checkout (saída), barrel must be available (status = 'in')
     if (movementType === "checkout" && barrel.status === "out") {
-      return { 
-        status: "error", 
-        message: `Equipamento "${barrel.code}" indisponível. Já está fora com cliente.` 
+      return {
+        status: "error",
+        message: `Equipamento "${barrel.code}" indisponível. Já está fora com cliente.`,
       };
     }
 
-    // If checkin (entrada), barrel must be out (status = 'out')
     if (movementType === "checkin" && barrel.status !== "out") {
-      return { 
-        status: "error", 
-        message: `Equipamento "${barrel.code}" não está em saída. Verifique o histórico.` 
+      return {
+        status: "error",
+        message: `Equipamento "${barrel.code}" não está em saída. Verifique o histórico.`,
       };
     }
   } catch (error) {
@@ -82,5 +79,10 @@ export async function registerMovementAction(formData: FormData): Promise<Action
     };
   }
 
-  return { status: "success", message: "Movimentação registrada." };
+  const successMessage =
+    movementType === "checkout"
+      ? `Saída registrada para o barril ${barrelCode}. Campos limpos para a próxima operação.`
+      : `Entrada registrada para o barril ${barrelCode}. Campos limpos para a próxima operação.`;
+
+  return { status: "success", message: successMessage };
 }

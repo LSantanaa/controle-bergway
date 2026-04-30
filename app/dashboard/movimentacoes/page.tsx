@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { FlashMessage } from "@/components/ui/flash-message";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { BarrelSearch } from "@/components/ui/barrel-search";
+import { CustomerSearch } from "@/components/ui/customer-search";
 import { useMovementPageQuery } from "@/lib/hooks/use-app-queries";
 import { useFlashState } from "@/lib/hooks/use-flash-state";
 import { formatDateTime, formatMovementType } from "@/lib/utils";
@@ -18,8 +19,8 @@ export default function MovementsPage() {
   const { flash, setFlash } = useFlashState();
   const [isPending, startTransition] = useTransition();
   const [selectedBarrel, setSelectedBarrel] = useState<any>(null);
+  const [formResetSignal, setFormResetSignal] = useState(0);
   const { data } = useMovementPageQuery();
-  const activeCustomers = data?.activeCustomers ?? [];
   const openBarrels = data?.openBarrels ?? [];
   const movements = data?.recentMovements ?? [];
 
@@ -45,6 +46,8 @@ export default function MovementsPage() {
 
       if (result.status === "success") {
         form.reset();
+        setSelectedBarrel(null);
+        setFormResetSignal((current) => current + 1);
         await invalidateData();
       }
     });
@@ -57,7 +60,7 @@ export default function MovementsPage() {
           <div className="brand-kicker">Operação</div>
           <h1>Movimentações</h1>
           <p className="brand-subtitle">
-           Entrada e saída de equipamentos.
+            Entrada e saída de equipamentos.
           </p>
         </div>
       </section>
@@ -77,7 +80,7 @@ export default function MovementsPage() {
             <form className="stack" onSubmit={handleSubmit}>
               <div className="field-grid">
                 <div className="field-grid-2">
-                  <BarrelSearch onBarrelSelect={setSelectedBarrel} />
+                  <BarrelSearch onBarrelSelect={setSelectedBarrel} resetSignal={formResetSignal} />
 
                   <div className="field">
                     <label htmlFor="movement_type">Tipo</label>
@@ -88,17 +91,7 @@ export default function MovementsPage() {
                   </div>
                 </div>
 
-                <div className="field">
-                  <label htmlFor="customer_id">Cliente para saída</label>
-                  <select className="select" id="customer_id" name="customer_id">
-                    <option value="">Selecione quando for saída</option>
-                    {activeCustomers.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.trade_name || item.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <CustomerSearch resetSignal={formResetSignal} />
 
                 <div className="field">
                   <label htmlFor="notes">Observações</label>
@@ -153,7 +146,7 @@ export default function MovementsPage() {
           <div className="toolbar">
             <div>
               <h2 style={{ margin: 0 }}>Barris em aberto</h2>
-              <p className="muted">Retornos esperados e cliente atual.</p>
+              <p className="muted">Barris com cliente atual.</p>
             </div>
             <Link className="button-ghost" href="/dashboard/barris">
               Ver barris

@@ -149,6 +149,32 @@ export async function getActiveCustomers(search = "") {
   return (data ?? []) as Customer[];
 }
 
+export async function searchActiveCustomers(search: string, limit = 8) {
+  await requireActiveProfile();
+  const supabase = await createClient();
+  const term = sanitizeSearchTerm(search);
+  const safeLimit =
+    Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 20) : 8;
+
+  if (term.length < 2) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("customers")
+    .select("id, name, trade_name, city, phone")
+    .eq("is_active", true)
+    .or(`name.ilike.%${term}%,trade_name.ilike.%${term}%,city.ilike.%${term}%,phone.ilike.%${term}%`)
+    .order("name")
+    .limit(safeLimit);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as Pick<Customer, "id" | "name" | "trade_name" | "city" | "phone">[];
+}
+
 export async function getOpenBarrels(limit = 8) {
   await requireActiveProfile();
   const supabase = await createClient();
@@ -312,14 +338,13 @@ export async function getDashboardSummaryData(): Promise<DashboardSummaryData> {
 }
 
 export async function getMovementPageData(): Promise<MovementPageData> {
-  const [activeCustomers, openBarrels, recentMovements] = await Promise.all([
-    getActiveCustomers(),
+  const [openBarrels, recentMovements] = await Promise.all([
     getOpenBarrels(100),
     getRecentMovements(12),
   ]);
 
   return {
-    activeCustomers,
+    activeCustomers: [],
     openBarrels,
     recentMovements,
   };
