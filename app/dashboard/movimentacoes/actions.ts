@@ -81,8 +81,8 @@ export async function registerMovementAction(formData: FormData): Promise<Action
 
   const successMessage =
     movementType === "checkout"
-      ? `Saída registrada para o barril ${barrelCode}. Campos limpos para a próxima operação.`
-      : `Entrada registrada para o barril ${barrelCode}. Campos limpos para a próxima operação.`;
+      ? `Saída registrada para o barril ${barrelCode}.`
+      : `Entrada registrada para o barril ${barrelCode}.`;
 
   return { status: "success", message: successMessage };
 }

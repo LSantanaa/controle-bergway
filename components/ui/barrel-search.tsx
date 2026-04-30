@@ -24,6 +24,7 @@ export function BarrelSearch({ onBarrelSelect, resetSignal = 0 }: BarrelSearchPr
   const cacheRef = useRef<Map<string, BarrelInfo | null>>(new Map());
 
   useEffect(() => {
+    cacheRef.current.clear();
     setCode("");
     setBarrel(null);
     setError("");
@@ -54,7 +55,8 @@ export function BarrelSearch({ onBarrelSelect, resetSignal = 0 }: BarrelSearchPr
       setLoading(true);
       try {
         const response = await fetch(
-          `/api/barrels/search?code=${encodeURIComponent(trimmedCode)}`
+          `/api/barrels/search?code=${encodeURIComponent(trimmedCode)}`,
+          { cache: "no-store" },
         );
         const data = await response.json();
 
